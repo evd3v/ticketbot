@@ -3,6 +3,8 @@ import TeleBot from "telebot";
 
 const TELEGRAM_BOT_TOKEN = "7779682896:AAGCT0knRD9IzLJB6tArnFmRHP8R7yirwoc";
 
+const ADMIN_CHAT_ID = 875484579
+
 
 const SESSIONS = [
   {id: '2440', date: '23 октября 19:00'},
@@ -94,8 +96,6 @@ bot.on(["/start"], (msg) => {
 
   setInterval(async () => {
 
-    console.log('make request!')
-
     for await (let session of SESSIONS) {
       const { response: { places } } = await getPlaces(session.id);
 
@@ -115,9 +115,15 @@ bot.on(["/start"], (msg) => {
   }, 60000)
 
 
-  setInterval(() => {
+  if(msg.chat.id === ADMIN_CHAT_ID) {
     msg.reply.text('Опрос все еще идет, я не уснул!')
-  }, 60000 * 60)
+  }
+
+  setInterval(() => {
+    if(msg.from.id === ADMIN_CHAT_ID) {
+      msg.reply.text('Опрос все еще идет, я не уснул!')
+    }
+  }, 60000 * 30)
 
 
 });
