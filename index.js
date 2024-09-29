@@ -91,6 +91,8 @@ const bot = new TeleBot({
 
 bot.on(["/start"], (msg) => {
 
+  msg.reply.text('Опрос включен!')
+
   setInterval(async () => {
 
     console.log('make request!')
@@ -112,6 +114,12 @@ bot.on(["/start"], (msg) => {
 
 
   }, 60000)
+
+
+  setInterval(() => {
+    msg.reply.text('Опрос все еще идет, я не уснул!')
+  }, 60000 * 60)
+
 
 });
 
