@@ -8,7 +8,6 @@ const SESSIONS = [
   {id: '2440', date: '23 октября 19:00'},
   {id: '2439', date: '10 октября 19:00'},
   {id: '2438', date: '09 октября 19:00'},
-  {id: '2465', date: '09 октября 19:00'},
 ]
 
 const getPlaces = async (id) => {
