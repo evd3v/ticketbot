@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-bot
+    restart: always  # Automatically restart the bot if it crashes
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./:/app  # Map the current directory to the container

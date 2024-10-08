@@ -4,12 +4,15 @@ import TeleBot from "telebot";
 const TELEGRAM_BOT_TOKEN = "7779682896:AAGCT0knRD9IzLJB6tArnFmRHP8R7yirwoc";
 
 const ADMIN_CHAT_ID = 875484579
+const ANGEL_CHAT_ID = 384686618
 
 
 const SESSIONS = [
-  {id: '2440', date: '23 октября 19:00'},
-  {id: '2439', date: '10 октября 19:00'},
-  {id: '2438', date: '09 октября 19:00'},
+  {id: '2440', date: '23 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2440'},
+  {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
+  {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
+  {id: '2491', date: '13 ноября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2491'},
+  {id: '2492', date: '14 ноября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2492'},
 ]
 
 const getPlaces = async (id) => {
@@ -90,42 +93,32 @@ const bot = new TeleBot({
   token: TELEGRAM_BOT_TOKEN, // Required. Telegram Bot API token.
 });
 
-bot.on(["/start"], (msg) => {
 
-  msg.reply.text('Опрос включен!')
+setInterval(async () => {
+  for await (let session of SESSIONS) {
+    const { response: { places } } = await getPlaces(session.id);
 
-  setInterval(async () => {
+    const { response: { places: hallPlaces }  } = await getHallData(session.id)
 
-    for await (let session of SESSIONS) {
-      const { response: { places } } = await getPlaces(session.id);
+    const placesKeys = Object.keys(places);
+    const hallPlacesKeys = Object.keys(hallPlaces);
 
-      const { response: { places: hallPlaces }  } = await getHallData(session.id)
+    const availablePlacesKeys = hallPlacesKeys.filter(key => !placesKeys.includes(key));
 
-      const placesKeys = Object.keys(places);
-      const hallPlacesKeys = Object.keys(hallPlaces);
-
-      const availablePlacesKeys = hallPlacesKeys.filter(key => !placesKeys.includes(key));
-
-      if(availablePlacesKeys.length > 0) {
-        msg.reply.text(`На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!`)
-      }
+    if(availablePlacesKeys.length > 0) {
+      bot.sendMessage(ANGEL_CHAT_ID, `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`)
+      bot.sendMessage(ADMIN_CHAT_ID, `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`)
     }
-
-
-  }, 60000)
-
-
-  if(msg.chat.id === ADMIN_CHAT_ID) {
-    msg.reply.text('Опрос все еще идет, я не уснул!')
   }
-
-  setInterval(() => {
-    if(msg.from.id === ADMIN_CHAT_ID) {
-      msg.reply.text('Опрос все еще идет, я не уснул!')
-    }
-  }, 60000 * 30)
+}, 60000)
 
 
-});
+bot.sendMessage(ADMIN_CHAT_ID, 'Опрос запущен!')
+
+setInterval(() => {
+  bot.sendMessage(ADMIN_CHAT_ID, 'Опрос идет, все ок!')
+}, 60000 * 60)
+
+
 
 bot.start();
