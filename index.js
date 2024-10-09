@@ -9,8 +9,8 @@ const ANGEL_CHAT_ID = 384686618
 
 const SESSIONS = [
   {id: '2440', date: '23 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2440'},
-  {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
-  {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
+  // {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
+  // {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
   {id: '2491', date: '13 ноября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2491'},
   {id: '2492', date: '14 ноября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2492'},
 ]
