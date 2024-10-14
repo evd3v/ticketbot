@@ -305,8 +305,8 @@ setInterval(async () => {
 
 bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
 
-setInterval(() => {
-  bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
-}, 60000 * 60);
+// setInterval(() => {
+//   bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
+// }, 60000 * 60);
 
 bot.start();
