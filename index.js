@@ -110,7 +110,7 @@ setInterval(async () => {
       bot.sendMessage(ADMIN_CHAT_ID, `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`)
     }
   }
-}, 60000)
+}, 5000)
 
 
 bot.sendMessage(ADMIN_CHAT_ID, 'Опрос запущен!')
