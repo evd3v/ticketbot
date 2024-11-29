@@ -265,48 +265,48 @@ setInterval(async () => {
       );
 
       // if (!isOrderBooked) {
-      //   bot.sendMessage(ANGEL_CHAT_ID, `Попытка бронирования...`);
-      //   bot.sendMessage(ADMIN_CHAT_ID, `Попытка бронирования...`);
-      //
-      //   const res = await makeOrder(session.id, availablePlacesKeys[0]);
-      //
-      //   if (res?.data?.result === "error") {
-      //     bot.sendMessage(
-      //       ANGEL_CHAT_ID,
-      //       `Ошибка в процессе бронирования, билет уже купили :(`
-      //     );
-      //     bot.sendMessage(
-      //       ADMIN_CHAT_ID,
-      //       `Ошибка в процессе бронирования, билет уже купили :(`
-      //     );
-      //     return;
-      //   }
-      //
-      //   await confirmBooking();
-      //
-      //   setTimeout(() => {
-      //     bot.sendMessage(ANGEL_CHAT_ID, `Бронь закончилась :(`);
-      //     bot.sendMessage(ADMIN_CHAT_ID, `Бронь закончилась :(`);
-      //     isOrderBooked = false;
-      //   }, 60000 * 3);
-      //   bot.sendMessage(
-      //     ANGEL_CHAT_ID,
-      //     `Билет забронирован! Есть 3 минуты на оплату!\nСсылка: https://quicktickets.ru/ordering/anytickets`
-      //   );
-      //   bot.sendMessage(
-      //     ADMIN_CHAT_ID,
-      //     `Билет забронирован! Есть 3 минуты на оплату!\nСсылка: https://quicktickets.ru/ordering/anytickets`
-      //   );
-      //   isOrderBooked = true;
-      // }
-    }
+        bot.sendMessage(ANGEL_CHAT_ID, `Попытка бронирования...`);
+        bot.sendMessage(ADMIN_CHAT_ID, `Попытка бронирования...`);
+
+        const res = await makeOrder(session.id, availablePlacesKeys[0]);
+
+        if (res?.data?.result === "error") {
+          bot.sendMessage(
+            ANGEL_CHAT_ID,
+            `Ошибка в процессе бронирования, билет уже купили :(`
+          );
+          bot.sendMessage(
+            ADMIN_CHAT_ID,
+            `Ошибка в процессе бронирования, билет уже купили :(`
+          );
+          return;
+        }
+
+        await confirmBooking();
+
+        setTimeout(() => {
+          bot.sendMessage(ANGEL_CHAT_ID, `Бронь закончилась :(`);
+          bot.sendMessage(ADMIN_CHAT_ID, `Бронь закончилась :(`);
+          isOrderBooked = false;
+        }, 60000 * 3);
+        bot.sendMessage(
+          ANGEL_CHAT_ID,
+          `Билет забронирован! Есть 3 минуты на оплату!\nСсылка: https://quicktickets.ru/ordering/anytickets`
+        );
+        bot.sendMessage(
+          ADMIN_CHAT_ID,
+          `Билет забронирован! Есть 3 минуты на оплату!\nСсылка: https://quicktickets.ru/ordering/anytickets`
+        );
+        isOrderBooked = true;
+      }
+    // }
   }
 }, 5000);
 
 bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
 
-// setInterval(() => {
-//   bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
-// }, 60000 * 60);
+setInterval(() => {
+  bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
+}, 60000 * 60);
 
 bot.start();
