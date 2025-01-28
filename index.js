@@ -11,16 +11,16 @@ let isOrderBooked = false;
 
 const SESSIONS = [
   {
-    id: "2540",
-    date: "10 декабря 19:00",
-    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2540",
+    id: "2616",
+    date: "5 февраля 19:00",
+    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2616",
   },
   // {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
   // {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
   {
-    id: "2541",
-    date: "11 декабря 19:00",
-    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2541",
+    id: "2617",
+    date: "6 февраля 19:00",
+    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2617",
   },
 ];
 
