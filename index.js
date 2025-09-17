@@ -11,17 +11,27 @@ let isOrderBooked = false;
 
 const SESSIONS = [
   {
-    id: "2540",
-    date: "10 декабря 19:00",
-    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2540",
+    id: "2774",
+    date: "19 сентября 19:00",
+    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2774",
   },
+    {
+        id: "2775",
+        date: "20 сентября 18:00",
+        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2775",
+    },
+    {
+        id: "2776",
+        date: "21 сентября 18:00",
+        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2776",
+    },
+    {
+        id: "2777",
+        date: "24 сентября 19:00",
+        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2777",
+    },
   // {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
   // {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
-  {
-    id: "2541",
-    date: "11 декабря 19:00",
-    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2541",
-  },
 ];
 
 const getPlaces = async (id) => {
@@ -300,8 +310,8 @@ setInterval(async () => {
 
 bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
 
-// setInterval(() => {
-//   bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
-// }, 60000 * 60);
+setInterval(() => {
+  bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
+}, 60000 * 60);
 
 bot.start();
