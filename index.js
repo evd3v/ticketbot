@@ -11,25 +11,30 @@ let isOrderBooked = false;
 
 const SESSIONS = [
   {
-    id: "2774",
-    date: "19 сентября 19:00",
-    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2774",
+    id: "2809",
+    date: "Анна, сны. 05 октября 18:00",
+    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2809",
   },
     {
-        id: "2775",
-        date: "20 сентября 18:00",
-        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2775",
+        id: "2804",
+        date: "Яга. 08 октября 19:00",
+        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2804",
     },
     {
-        id: "2776",
-        date: "21 сентября 18:00",
-        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2776",
+        id: "2805",
+        date: "Яга. 09 октября 19:00",
+        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2805",
     },
-    {
-        id: "2777",
-        date: "24 сентября 19:00",
-        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2777",
-    },
+    // {
+    //     id: "2776",
+    //     date: "21 сентября 18:00",
+    //     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2776",
+    // },
+    // {
+    //     id: "2777",
+    //     date: "24 сентября 19:00",
+    //     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2777",
+    // },
   // {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
   // {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
 ];
