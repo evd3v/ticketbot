@@ -264,7 +264,7 @@ setInterval(async () => {
       (key) => !placesKeys.includes(key)
     );
 
-    if (availablePlacesKeys.length > 0) {
+    if (availablePlacesKeys.length > 1) {
       bot.sendMessage(
         ANGEL_CHAT_ID,
         `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`
@@ -315,8 +315,8 @@ setInterval(async () => {
 
 bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
 
-setInterval(() => {
-  bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
-}, 60000 * 60);
+// setInterval(() => {
+//   bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
+// }, 60000 * 60);
 
 bot.start();
