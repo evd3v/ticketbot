@@ -242,6 +242,28 @@ const extendBooking = async (id) => {
     console.log("ошибка в процессе продления бронирования");
   }
 };
+ 
+// Ensure we are in polling mode: delete any existing webhook to avoid 409 Conflict errors
+const ensurePollingMode = async () => {
+  try {
+    const res = await axios.get(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`,
+      { params: { drop_pending_updates: true } }
+    );
+    if (!res?.data?.ok) {
+      console.log("[bot.warn] deleteWebhook returned non-ok:", res?.data);
+    } else {
+      console.log("[bot.info] Webhook deleted (if existed). Using getUpdates polling.");
+    }
+  } catch (e) {
+    console.log(
+      "[bot.error] Failed to delete webhook:",
+      e?.response?.data || e.message
+    );
+  }
+};
+
+await ensurePollingMode();
 
 const bot = new TeleBot({
   token: TELEGRAM_BOT_TOKEN, // Required. Telegram Bot API token.
@@ -264,7 +286,7 @@ setInterval(async () => {
       (key) => !placesKeys.includes(key)
     );
 
-    if (availablePlacesKeys.length > 1) {
+    if (availablePlacesKeys.length > 0) {
       bot.sendMessage(
         ANGEL_CHAT_ID,
         `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`
