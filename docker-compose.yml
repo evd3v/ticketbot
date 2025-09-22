@@ -10,7 +10,9 @@ services:
       # Optionally set WEB_APP_URL to a public HTTPS URL when deploying
       # - WEB_APP_URL=https://your-domain.tld/webapp
     volumes:
-      - ./:/app  # Map the current directory to the container
-      - /app/node_modules  # Preserve node_modules inside the container
+      - app_data:/app/data  # Persist SQLite data only
     ports:
       - "10000:10000"  # Expose the web server for the Mini App
+
+volumes:
+  app_data:
