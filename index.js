@@ -16,6 +16,7 @@ const ANGEL_CHAT_ID = 384686618;
 
 const PORT = process.env.PORT || 10010; // internal, fronted by Nginx
 const WEB_APP_URL = process.env.WEB_APP_URL || "http://localhost:10000/webapp"; // public via Nginx
+const CAN_USE_WEB_APP = /^https:\/\//i.test(WEB_APP_URL);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -681,6 +682,12 @@ app.listen(PORT, () => {
 
 // Configure Telegram chat menu button to open the Mini App for all users
 async function setDefaultMenuButton() {
+  if (!CAN_USE_WEB_APP) {
+    console.log(
+      "[bot.info] Skipping setChatMenuButton: WEB_APP_URL is not https, web_app buttons require HTTPS and domain set in BotFather."
+    );
+    return;
+  }
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`;
     const payload = {
@@ -711,10 +718,9 @@ setDefaultMenuButton();
 const webAppKeyboard = () => ({
   inline_keyboard: [
     [
-      {
-        text: "Открыть мини‑приложение",
-        web_app: { url: WEB_APP_URL },
-      },
+      CAN_USE_WEB_APP
+        ? { text: "Открыть мини‑приложение", web_app: { url: WEB_APP_URL } }
+        : { text: "Открыть мини‑приложение", url: WEB_APP_URL },
     ],
   ],
 });
@@ -732,6 +738,14 @@ const replyWebAppKeyboard = () => ({
   one_time_keyboard: false,
 });
 
+function safeSendMessage(chatId, text, options = {}) {
+  return bot
+    .sendMessage(chatId, text, options)
+    .catch((e) =>
+      console.log("[bot.error] sendMessage:", e?.response?.data || e?.message || e)
+    );
+}
+
 function sendIntro(chatId) {
   const text = [
     `<b>Привет!</b> Я бот, который помогает отслеживать появление билетов в театре «Свободное пространство».`,
@@ -745,7 +759,10 @@ function sendIntro(chatId) {
     ``,
     `<b>Открыть мини‑приложение:</b> <a href="${WEB_APP_URL}">перейти по ссылке</a>`,
   ].join("\n");
-  bot.sendMessage(chatId, text, { parseMode: "HTML", replyMarkup: replyWebAppKeyboard() });
+  const options = CAN_USE_WEB_APP
+    ? { parseMode: "HTML", replyMarkup: replyWebAppKeyboard() }
+    : { parseMode: "HTML", replyMarkup: webAppKeyboard() };
+  safeSendMessage(chatId, text, options);
 }
 
 function isCmd(text = "", cmd) {
@@ -771,7 +788,7 @@ bot.on("/manage", (msg) => {
   const chatId = msg.from?.id || msg.chat?.id;
   console.log(`[bot.info] /manage (command) from ${chatId}`);
   if (chatId)
-    bot.sendMessage(chatId, "Откройте мини‑приложение:", {
+    safeSendMessage(chatId, "Откройте мини‑приложение:", {
       replyMarkup: webAppKeyboard(),
     });
 });
@@ -788,7 +805,7 @@ bot.on("text", (msg) => {
     }
     if (isCmd(text, "manage")) {
       console.log(`[bot.info] Received /manage from ${chatId}`);
-      return bot.sendMessage(chatId, "Откройте мини‑приложение:", { replyMarkup: webAppKeyboard() });
+      return safeSendMessage(chatId, "Откройте мини‑приложение:", { replyMarkup: webAppKeyboard() });
     }
   } catch (e) {
     console.log("[bot.error] text handler:", e?.message || e);
