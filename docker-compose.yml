@@ -13,4 +13,4 @@ services:
       - ./:/app  # Map the current directory to the container
       - /app/node_modules  # Preserve node_modules inside the container
     ports:
-      - "12001:12001"  # Expose the web server for the Mini App
+      - "10000:10000"  # Expose the web server for the Mini App
