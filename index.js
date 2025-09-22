@@ -758,8 +758,6 @@ function sendIntro(chatId) {
     ``,
     `<b>Где открыть мини‑приложение</b>`,
     `• <b>В профиле бота</b>: нажмите на имя бота вверху чата → откроется профиль. Там будет раздел «Приложение»/«Apps» — нажмите, чтобы запустить.`,
-    `• Если раздела нет, просто перейдите по ссылке ниже:`,
-    `<a href="${WEB_APP_URL}">${WEB_APP_URL}</a>`,
   ].join("\n");
   const options = { parseMode: "HTML" }; // без кнопок
   safeSendMessage(chatId, text, options);
@@ -790,7 +788,7 @@ bot.on("/manage", (msg) => {
   if (chatId) {
     safeSendMessage(
       chatId,
-      `Откройте мини‑приложение: <a href="${WEB_APP_URL}">${WEB_APP_URL}</a>`,
+      `Чтобы открыть мини‑приложение: откройте профиль бота (нажмите на имя бота вверху чата) → раздел «Приложение»/«Apps».`,
       { parseMode: "HTML" }
     );
   }
@@ -810,7 +808,7 @@ bot.on("text", (msg) => {
     }
     if (isCmd(text, "manage")) {
       console.log(`[bot.info] Received /manage from ${chatId}`);
-      return safeSendMessage(chatId, `Откройте мини‑приложение: <a href="${WEB_APP_URL}">${WEB_APP_URL}</a>`, { parseMode: "HTML" });
+      return safeSendMessage(chatId, `Чтобы открыть мини‑приложение: откройте профиль бота (нажмите на имя бота вверху чата) → раздел «Приложение»/«Apps».`, { parseMode: "HTML" });
     }
   } catch (e) {
     console.log("[bot.error] text handler:", e?.message || e);
