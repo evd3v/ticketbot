@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { load as cheerioLoad } from "cheerio";
 
-const TELEGRAM_BOT_TOKEN = "7779682896:AAGCT0knRD9IzLJB6tArnFmRHP8R7yirwoc";
+const TELEGRAM_BOT_TOKEN = "7779682896:AAGRVxcJEjJyLhEFU4qk3PCYSbnpP3pZVyk";
 
 const ADMIN_CHAT_ID = 875484579;
 const ANGEL_CHAT_ID = 384686618;
@@ -594,24 +594,39 @@ app.post("/api/subscriptions", async (req, res) => {
           const { text, href } = fmtTitle(sid);
           let line = `• <a href="${href}">${escapeHtml(text)}</a>`;
           try {
-            const { response: { places } } = await getPlaces(sid);
-            const { response: { places: hallPlaces } } = await getHallData(sid);
+            const {
+              response: { places },
+            } = await getPlaces(sid);
+            const {
+              response: { places: hallPlaces },
+            } = await getHallData(sid);
             const placesKeys = Object.keys(places);
             const hallPlacesKeys = Object.keys(hallPlaces);
-            const availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
+            const availablePlacesKeys = hallPlacesKeys.filter(
+              (key) => !placesKeys.includes(key)
+            );
             const availableCount = availablePlacesKeys.length;
             // Prime notify_state so next poll will not duplicate
-            try { upsertNotifyStateStmt.run(user.id, String(sid), availableCount); } catch {}
+            try {
+              upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
+            } catch {}
             // Seat details
             const seatIndex = buildSeatIndex(hallPlaces);
             const details = availablePlacesKeys
               .map((pid) => seatIndex.get(pid))
               .filter(Boolean)
-              .sort((a, b) => zoneOrder(a.zone) - zoneOrder(b.zone) || a.row - b.row || a.seat - b.seat)
+              .sort(
+                (a, b) =>
+                  zoneOrder(a.zone) - zoneOrder(b.zone) ||
+                  a.row - b.row ||
+                  a.seat - b.seat
+              )
               .slice(0, 10)
               .map((d) => `   · ${d.zone} — ряд ${d.row}, место ${d.seat}`)
               .join("\n");
-            line += `\n   Сейчас доступно: <b>${availableCount}</b>${details ? `\n${escapeHtml(details)}` : ""}`;
+            line += `\n   Сейчас доступно: <b>${availableCount}</b>${
+              details ? `\n${escapeHtml(details)}` : ""
+            }`;
           } catch (e) {
             // ignore snapshot errors
           }
@@ -621,7 +636,9 @@ app.post("/api/subscriptions", async (req, res) => {
         // For removed, delete notify_state entries
         if (removed.length) {
           try {
-            const delStmt = db.prepare("DELETE FROM notify_state WHERE user_id = ? AND session_id = ?");
+            const delStmt = db.prepare(
+              "DELETE FROM notify_state WHERE user_id = ? AND session_id = ?"
+            );
             for (const sid of removed) delStmt.run(user.id, String(sid));
           } catch {}
         }
@@ -633,10 +650,14 @@ app.post("/api/subscriptions", async (req, res) => {
 
         const blocks = [];
         if (addedBlocks.length) {
-          blocks.push(`✅ <b>Подписка оформлена</b>:\n` + addedBlocks.join("\n"));
+          blocks.push(
+            `✅ <b>Подписка оформлена</b>:\n` + addedBlocks.join("\n")
+          );
         }
         if (removedLines.length) {
-          blocks.push(`🚫 <b>Подписка отменена</b>:\n` + removedLines.join("\n"));
+          blocks.push(
+            `🚫 <b>Подписка отменена</b>:\n` + removedLines.join("\n")
+          );
         }
         const text = blocks.join("\n\n");
         await bot.sendMessage(user.id, text, { parseMode: "HTML" });
@@ -669,7 +690,9 @@ async function setDefaultMenuButton() {
         web_app: { url: WEB_APP_URL },
       },
     };
-    const r = await axios.post(url, payload, { headers: { "content-type": "application/json" } });
+    const r = await axios.post(url, payload, {
+      headers: { "content-type": "application/json" },
+    });
     if (!r?.data?.ok) {
       console.log("[bot.warn] setChatMenuButton non-ok:", r?.data);
     } else {
@@ -721,7 +744,7 @@ bot.on("/start", (msg) => {
     `• В уведомлении укажем зону (Партер/Балкон), ряд и место.`,
     `• Отписаться можно вверху экрана в разделе «Ваши подписки».`,
     ``,
-    `<b>Открыть мини‑приложение:</b> <a href="${WEB_APP_URL}">перейти по ссылке</a>`
+    `<b>Открыть мини‑приложение:</b> <a href="${WEB_APP_URL}">перейти по ссылке</a>`,
   ].join("\n");
 
   bot.sendMessage(chatId, text, {
@@ -759,8 +782,16 @@ function buildSeatIndex(hallPlaces) {
   // Collect places with coordinates
   const places = [];
   for (const [pid, obj] of Object.entries(hallPlaces || {})) {
-    const left = tryParsePx(obj?.left ?? obj?.style?.left ?? obj?.x ?? obj?.pos?.x ?? obj?.params?.left);
-    const top = tryParsePx(obj?.top ?? obj?.style?.top ?? obj?.y ?? obj?.pos?.y ?? obj?.params?.top);
+    const left = tryParsePx(
+      obj?.left ??
+        obj?.style?.left ??
+        obj?.x ??
+        obj?.pos?.x ??
+        obj?.params?.left
+    );
+    const top = tryParsePx(
+      obj?.top ?? obj?.style?.top ?? obj?.y ?? obj?.pos?.y ?? obj?.params?.top
+    );
     if (left == null || top == null) continue;
     places.push({ id: pid, left, top });
   }
@@ -864,15 +895,36 @@ setInterval(async () => {
                 .slice(0, 20)
                 .map((d) => `• ${d.zone} — ряд ${d.row}, место ${d.seat}`)
                 .join("\n");
-              const more = details.length > 20 ? `\n… и еще ${details.length - 20} мест` : "";
-              const title = `${sessionInfo.title}${sessionInfo.date_text ? " — " + sessionInfo.date_text : ""}`;
-              const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-              const text = `<b>🎟️ Доступно ${availableCount} мест</b>\n<a href="${sessionInfo.link}">${esc(title)}</a>\n${esc(lines)}${more}`;
+              const more =
+                details.length > 20
+                  ? `\n… и еще ${details.length - 20} мест`
+                  : "";
+              const title = `${sessionInfo.title}${
+                sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
+              }`;
+              const esc = (s = "") =>
+                String(s)
+                  .replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;");
+              const text = `<b>🎟️ Доступно ${availableCount} мест</b>\n<a href="${
+                sessionInfo.link
+              }">${esc(title)}</a>\n${esc(lines)}${more}`;
               await bot.sendMessage(uid, text, { parseMode: "HTML" });
             } else {
-              const title = `${sessionInfo.title}${sessionInfo.date_text ? " — " + sessionInfo.date_text : ""}`;
-              const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-              const text = `❌ Билеты на сеанс <b>${esc(title)}</b> закончились.`;
+              const title = `${sessionInfo.title}${
+                sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
+              }`;
+              const esc = (s = "") =>
+                String(s)
+                  .replace(/&/g, "&amp;")
+                  .replace(/</g, "&lt;")
+                  .replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;");
+              const text = `❌ Билеты на сеанс <b>${esc(
+                title
+              )}</b> закончились.`;
               await bot.sendMessage(uid, text, { parseMode: "HTML" });
             }
             upsertNotifyStateStmt.run(uid, sid, availableCount);
