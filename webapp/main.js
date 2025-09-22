@@ -2,28 +2,69 @@ const tg = window.Telegram?.WebApp;
 
 const listEl = document.getElementById('list');
 const subsEl = document.getElementById('subs');
-const saveBtn = document.getElementById('saveBtn');
 const statusEl = document.getElementById('status');
+
+const state = {
+  sessions: [],
+};
+
+function debounce(fn, wait = 500) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
 
 function setStatus(text, type = 'info') {
   statusEl.textContent = text || '';
   statusEl.className = `status ${type}`;
 }
 
+function groupByTitle(sessions) {
+  const map = new Map();
+  for (const s of sessions) {
+    const key = s.title || 'Спектакль';
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(s);
+  }
+  return Array.from(map.entries()).map(([title, items]) => ({ title, items }));
+}
+
 function renderSessions(sessions) {
   listEl.innerHTML = '';
 
-  sessions.forEach((s) => {
-    const item = document.createElement('label');
-    item.className = 'item';
-    item.innerHTML = `
-      <input type="checkbox" data-id="${s.id}" ${s.subscribed ? 'checked' : ''} />
-      <div class="data">
-        <div class="title">${(s.title || 'Спектакль')} — ${s.date}</div>
-        <div class="link"><a href="${s.link}" target="_blank" rel="noreferrer">${s.link}</a></div>
-      </div>
+  const groups = groupByTitle(sessions);
+  groups.forEach((g) => {
+    const box = document.createElement('details');
+    box.className = 'group';
+    box.open = true;
+    const count = g.items.filter(x => x.subscribed).length;
+    box.innerHTML = `
+      <summary class="group-summary">
+        <span class="group-title">${g.title}</span>
+        <span class="group-meta">${count ? `подписок: ${count}` : ''}</span>
+      </summary>
     `;
-    listEl.appendChild(item);
+
+    const inner = document.createElement('div');
+    inner.className = 'group-items';
+
+    g.items.forEach((s) => {
+      const item = document.createElement('label');
+      item.className = 'item';
+      item.innerHTML = `
+        <input type="checkbox" data-id="${s.id}" ${s.subscribed ? 'checked' : ''} />
+        <div class="data">
+          <div class="title">${(s.title || 'Спектакль')} — ${s.date}</div>
+          <div class="link"><a href="${s.link}" target="_blank" rel="noreferrer">${s.link}</a></div>
+        </div>
+      `;
+      inner.appendChild(item);
+    });
+
+    box.appendChild(inner);
+    listEl.appendChild(box);
   });
 
   // Render chips
@@ -36,12 +77,14 @@ function renderSessions(sessions) {
       <span class="x" title="Удалить">✕</span>
     `;
     chip.querySelector('.x').addEventListener('click', () => {
-      // uncheck in the list and refresh chips
+      // update local state
+      const target = state.sessions.find(it => it.id === s.id);
+      if (target) target.subscribed = false;
+      // uncheck in the list and refresh UI
       const cb = listEl.querySelector(`input[data-id="${s.id}"]`);
       if (cb) cb.checked = false;
-      // update local state
-      const updated = sessions.map(item => item.id === s.id ? { ...item, subscribed: false } : item);
-      renderSessions(updated);
+      renderSessions(state.sessions);
+      queueSave();
     });
     subsEl.appendChild(chip);
   });
@@ -54,7 +97,8 @@ async function loadSessions() {
     const res = await fetch(`/api/sessions?initData=${encodeURIComponent(initData)}`);
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'API_ERROR');
-    renderSessions(json.sessions || []);
+    state.sessions = (json.sessions || []).map(s => ({ ...s }));
+    renderSessions(state.sessions);
     setStatus('');
   } catch (e) {
     console.error(e);
@@ -66,7 +110,7 @@ async function save() {
   try {
     setStatus('Сохранение...', 'info');
     const initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
-    const checked = Array.from(listEl.querySelectorAll('input[type="checkbox"]:checked')).map((el) => el.dataset.id);
+    const checked = state.sessions.filter(s => s.subscribed).map(s => s.id);
     const res = await fetch(`/api/subscriptions?initData=${encodeURIComponent(initData)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -83,7 +127,21 @@ async function save() {
   }
 }
 
-saveBtn.addEventListener('click', save);
+const queueSave = debounce(save, 600);
+
+// Delegate checkbox changes for auto-save
+listEl.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t && t.matches('input[type="checkbox"][data-id]')) {
+    const id = t.dataset.id;
+    const target = state.sessions.find(s => s.id === id);
+    if (target) {
+      target.subscribed = t.checked;
+      renderSessions(state.sessions);
+      queueSave();
+    }
+  }
+});
 
 if (tg) {
   tg.ready();

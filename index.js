@@ -577,6 +577,30 @@ app.listen(PORT, () => {
   console.log(`[server.info] WebApp URL: ${WEB_APP_URL}`);
 });
 
+// Configure Telegram chat menu button to open the Mini App for all users
+async function setDefaultMenuButton() {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setChatMenuButton`;
+    const payload = {
+      menu_button: {
+        type: "web_app",
+        text: "Открыть мини‑приложение",
+        web_app: { url: WEB_APP_URL },
+      },
+    };
+    const r = await axios.post(url, payload, { headers: { "content-type": "application/json" } });
+    if (!r?.data?.ok) {
+      console.log("[bot.warn] setChatMenuButton non-ok:", r?.data);
+    } else {
+      console.log("[bot.info] Chat menu button configured for WebApp");
+    }
+  } catch (e) {
+    console.log("[bot.error] setChatMenuButton:", e?.message || e);
+  }
+}
+
+setDefaultMenuButton();
+
 // ---------------------------
 // Bot commands: open WebApp
 // ---------------------------
@@ -591,13 +615,24 @@ const webAppKeyboard = () => ({
   ],
 });
 
+const replyWebAppKeyboard = () => ({
+  keyboard: [
+    [
+      {
+        text: "Открыть мини‑приложение",
+        web_app: { url: WEB_APP_URL },
+      },
+    ],
+  ],
+  resize_keyboard: true,
+  one_time_keyboard: false,
+});
+
 bot.on("/start", (msg) => {
   const chatId = msg.from?.id || msg.chat.id;
-  bot.sendMessage(
-    chatId,
-    "Управляйте подписками на спектакли через мини‑приложение:",
-    { replyMarkup: webAppKeyboard() }
-  );
+  bot.sendMessage(chatId, "Управляйте подписками на спектакли через мини‑приложение:", {
+    replyMarkup: replyWebAppKeyboard(),
+  });
 });
 
 bot.on("/manage", (msg) => {
@@ -609,6 +644,57 @@ bot.on("/manage", (msg) => {
 
 // Track last availability per session to send notifications only on change
 const lastAvailability = new Map(); // sessionId -> number
+
+// Helper: derive row/seat numbers from hall place coordinates
+function buildSeatIndex(hallPlaces) {
+  const tryParsePx = (v) => {
+    if (v == null) return undefined;
+    if (typeof v === "number") return v;
+    if (typeof v === "string") {
+      const m = v.match(/-?\d+(?:\.\d+)?/);
+      return m ? parseFloat(m[0]) : undefined;
+    }
+    if (typeof v === "object") {
+      // try common shapes
+      return tryParsePx(v.left ?? v.x ?? v.pos?.x ?? v.params?.left);
+    }
+    return undefined;
+  };
+
+  // Collect places with coordinates
+  const places = [];
+  for (const [pid, obj] of Object.entries(hallPlaces || {})) {
+    const left = tryParsePx(obj?.left ?? obj?.style?.left ?? obj?.x ?? obj?.pos?.x ?? obj?.params?.left);
+    const top = tryParsePx(obj?.top ?? obj?.style?.top ?? obj?.y ?? obj?.pos?.y ?? obj?.params?.top);
+    if (left == null || top == null) continue;
+    places.push({ id: pid, left, top });
+  }
+  if (!places.length) return new Map();
+
+  // Group by rows using vertical proximity
+  places.sort((a, b) => a.top - b.top || a.left - b.left);
+  const ROW_EPS = 6; // px tolerance to group into the same row
+  const rows = [];
+  for (const p of places) {
+    const row = rows.find((r) => Math.abs(r.refTop - p.top) <= ROW_EPS);
+    if (row) row.items.push(p);
+    else rows.push({ refTop: p.top, items: [p] });
+  }
+  // Sort rows top-to-bottom and assign row numbers 1..N
+  rows.sort((a, b) => a.refTop - b.refTop);
+  const index = new Map();
+  rows.forEach((row, i) => {
+    // sort seats by left
+    row.items.sort((a, b) => a.left - b.left);
+    row.items.forEach((p, j) => {
+      const rowNum = i + 1;
+      const seatNum = j + 1;
+      const zone = rowNum <= 15 ? "Партер" : rowNum <= 21 ? "Балкон" : "Зал";
+      index.set(p.id, { row: rowNum, seat: seatNum, zone });
+    });
+  });
+  return index;
+}
 
 setInterval(async () => {
   try {
@@ -642,6 +728,14 @@ setInterval(async () => {
         };
 
         const subs = getSubscribersForSessionStmt.all(sid);
+        // Build seat map to include row/seat details in notifications
+        const seatIndex = buildSeatIndex(hallPlaces);
+        const details = availablePlacesKeys
+          .map((pid) => ({ pid, info: seatIndex.get(pid) }))
+          .filter((x) => !!x.info)
+          .sort((a, b) => a.info.row - b.info.row || a.info.seat - b.info.seat)
+          .map((x) => x.info);
+
         let notified = 0;
         for (const row of subs) {
           const uid = Number(row.user_id);
@@ -651,20 +745,17 @@ setInterval(async () => {
 
           try {
             if (availableCount > 0) {
-              await bot.sendMessage(
-                uid,
-                `🎟️ Доступно ${availableCount} мест на сеанс: ${
-                  sessionInfo.title
-                }${
-                  sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
-                }\nСсылка: ${sessionInfo.link}`
-              );
+              const lines = details
+                .slice(0, 20)
+                .map((d) => `• ${d.zone} — ряд ${d.row}, место ${d.seat}`)
+                .join("\n");
+              const more = details.length > 20 ? `\n… и еще ${details.length - 20} мест` : "";
+              const text = `🎟️ Доступно ${availableCount} мест на сеанс: ${sessionInfo.title}${sessionInfo.date_text ? " — " + sessionInfo.date_text : ""}\n${lines}${more}\n\nСсылка: ${sessionInfo.link}`;
+              await bot.sendMessage(uid, text);
             } else {
               await bot.sendMessage(
                 uid,
-                `❌ Билеты на сеанс ${sessionInfo.title}${
-                  sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
-                } закончились.`
+                `❌ Билеты на сеанс ${sessionInfo.title}${sessionInfo.date_text ? " — " + sessionInfo.date_text : ""} закончились.`
               );
             }
             upsertNotifyStateStmt.run(uid, sid, availableCount);
