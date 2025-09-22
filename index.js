@@ -289,6 +289,25 @@ const bot = new TeleBot({
   token: TELEGRAM_BOT_TOKEN, // Required. Telegram Bot API token.
 });
 
+// Unsubscribe from all (button text or command)
+function clearAllSubscriptions(userId) {
+  try {
+    deleteUserSubsStmt.run(userId);
+    db.prepare("DELETE FROM notify_state WHERE user_id = ?").run(userId);
+    return true;
+  } catch (e) {
+    console.log("[db.error] clearAllSubscriptions:", e?.message || e);
+    return false;
+  }
+}
+
+function replyUnsubKeyboard() {
+  return {
+    keyboard: [[{ text: "Отписаться от всех" }]],
+    resize_keyboard: true,
+    one_time_keyboard: false,
+  };
+}
 // ---------------------------
 // SQLite store
 // ---------------------------
@@ -570,101 +589,31 @@ app.post("/api/subscriptions", async (req, res) => {
       for (const id of ids) insertUserSubStmt.run(userId, id);
     });
     tx(user.id, norm);
-    // notify user about changes
-    if (added.length || removed.length) {
-      try {
-        const sessions = await getSessionsList().catch(() => []);
-        const byId = new Map((sessions || []).map((s) => [String(s.id), s]));
-        const escapeHtml = (s = "") =>
-          String(s)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
-        const fmtTitle = (id) => {
-          const s = byId.get(String(id));
-          const title = s?.title || "Сеанс";
-          const date = s?.date ? ` — ${s.date}` : "";
-          const href = s?.link || `${ORG_URL}/s${id}`;
-          return { text: `${title}${date}`, href };
-        };
-
-        // For added, fetch current availability and prime notify_state
-        const addedBlocks = [];
-        for (const sid of added) {
-          const { text, href } = fmtTitle(sid);
-          let line = `• <a href="${href}">${escapeHtml(text)}</a>`;
-          try {
-            const {
-              response: { places },
-            } = await getPlaces(sid);
-            const {
-              response: { places: hallPlaces },
-            } = await getHallData(sid);
-            const placesKeys = Object.keys(places);
-            const hallPlacesKeys = Object.keys(hallPlaces);
-            const availablePlacesKeys = hallPlacesKeys.filter(
-              (key) => !placesKeys.includes(key)
-            );
-            const availableCount = availablePlacesKeys.length;
-            // Prime notify_state so next poll will not duplicate
-            try {
-              upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
-            } catch {}
-            // Seat details
-            const seatIndex = buildSeatIndex(hallPlaces);
-            const details = availablePlacesKeys
-              .map((pid) => seatIndex.get(pid))
-              .filter(Boolean)
-              .sort(
-                (a, b) =>
-                  zoneOrder(a.zone) - zoneOrder(b.zone) ||
-                  a.row - b.row ||
-                  a.seat - b.seat
-              )
-              .slice(0, 10)
-              .map((d) => `   · ${d.zone} — ряд ${d.row}, место ${d.seat}`)
-              .join("\n");
-            line += `\n   Сейчас доступно: <b>${availableCount}</b>${
-              details ? `\n${escapeHtml(details)}` : ""
-            }`;
-          } catch (e) {
-            // ignore snapshot errors
-          }
-          addedBlocks.push(line);
+    // update notify_state silently (no user messages)
+    if (added.length) {
+      for (const sid of added) {
+        try {
+          const {
+            response: { places },
+          } = await getPlaces(sid);
+          const {
+            response: { places: hallPlaces },
+          } = await getHallData(sid);
+          const placesKeys = Object.keys(places);
+          const hallPlacesKeys = Object.keys(hallPlaces);
+          const availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
+          const availableCount = availablePlacesKeys.length;
+          upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
+        } catch (e) {
+          // ignore snapshot errors
         }
-
-        // For removed, delete notify_state entries
-        if (removed.length) {
-          try {
-            const delStmt = db.prepare(
-              "DELETE FROM notify_state WHERE user_id = ? AND session_id = ?"
-            );
-            for (const sid of removed) delStmt.run(user.id, String(sid));
-          } catch {}
-        }
-
-        const removedLines = removed.map((id) => {
-          const { text, href } = fmtTitle(id);
-          return `• <a href="${href}">${escapeHtml(text)}</a>`;
-        });
-
-        const blocks = [];
-        if (addedBlocks.length) {
-          blocks.push(
-            `✅ <b>Подписка оформлена</b>:\n` + addedBlocks.join("\n")
-          );
-        }
-        if (removedLines.length) {
-          blocks.push(
-            `🚫 <b>Подписка отменена</b>:\n` + removedLines.join("\n")
-          );
-        }
-        const text = blocks.join("\n\n");
-        await bot.sendMessage(user.id, text, { parseMode: "HTML" });
-      } catch (e) {
-        console.log("[notify.warn] sub diff notify:", e?.message || e);
       }
+    }
+    if (removed.length) {
+      try {
+        const delStmt = db.prepare("DELETE FROM notify_state WHERE user_id = ? AND session_id = ?");
+        for (const sid of removed) delStmt.run(user.id, String(sid));
+      } catch {}
     }
     return res.json({ ok: true });
   } catch (e) {
@@ -794,6 +743,51 @@ bot.on("/manage", (msg) => {
   }
 });
 
+bot.on("/subscription", (msg) => {
+  const chatId = msg.from?.id || msg.chat?.id;
+  if (!chatId) return;
+  try {
+    const rows = getUserSubsStmt.all(chatId);
+    if (!rows.length) {
+      return safeSendMessage(chatId, "Пока нет активных подписок.", { replyMarkup: replyUnsubKeyboard() });
+    }
+    const items = rows
+      .map((r) => getSessionByIdStmt.get(String(r.session_id)))
+      .filter(Boolean)
+      .sort((a, b) => dateSortKeyRU(a.date_text || a.date || "") - dateSortKeyRU(b.date_text || b.date || ""));
+    const lines = items.map((s) => `• <b>${(s.title || "Сеанс").replace(/</g, '&lt;').replace(/>/g, '&gt;')}</b> — ${(s.date_text || s.date || "").replace(/</g, '&lt;').replace(/>/g, '&gt;')}`);
+    const text = [
+      `<b>Ваши подписки (${lines.length})</b>`,
+      ...lines,
+    ].join("\n");
+    return safeSendMessage(chatId, text, { parseMode: "HTML", replyMarkup: replyUnsubKeyboard() });
+  } catch (e) {
+    console.log("[cmd.error] /subscription:", e?.message || e);
+    return safeSendMessage(chatId, "Не удалось получить список подписок.");
+  }
+});
+
+bot.on("/unsubscribe_all", (msg) => {
+  const chatId = msg.from?.id || msg.chat?.id;
+  if (!chatId) return;
+  const ok = clearAllSubscriptions(chatId);
+  safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+});
+
+bot.on("/unsuball", (msg) => {
+  const chatId = msg.from?.id || msg.chat?.id;
+  if (!chatId) return;
+  const ok = clearAllSubscriptions(chatId);
+  safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+});
+
+bot.on("/unsub", (msg) => {
+  const chatId = msg.from?.id || msg.chat?.id;
+  if (!chatId) return;
+  const ok = clearAllSubscriptions(chatId);
+  safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+});
+
 bot.on("text", (msg) => {
   try {
     const chatId = msg.from?.id || msg.chat?.id;
@@ -809,6 +803,10 @@ bot.on("text", (msg) => {
     if (isCmd(text, "manage")) {
       console.log(`[bot.info] Received /manage from ${chatId}`);
       return safeSendMessage(chatId, `Чтобы открыть мини‑приложение: откройте профиль бота (нажмите на имя бота вверху чата) → раздел «Приложение»/«Apps».`, { parseMode: "HTML" });
+    }
+    if (/^отписаться от всех$/i.test(text.trim())) {
+      const ok = clearAllSubscriptions(chatId);
+      return safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
     }
   } catch (e) {
     console.log("[bot.error] text handler:", e?.message || e);
@@ -890,6 +888,37 @@ function buildSeatIndex(hallPlaces) {
 
 function zoneOrder(z) {
   return z === "Партер" ? 0 : z === "Балкон" ? 1 : 2;
+}
+
+// RU month parser for sorting date_text like "05 октября 18:00"
+const RU_MONTHS = {
+  январ: 1,
+  феврал: 2,
+  март: 3,
+  апрел: 4,
+  мая: 5,
+  июн: 6,
+  июл: 7,
+  август: 8,
+  сентябр: 9,
+  октябр: 10,
+  ноябр: 11,
+  декабр: 12,
+};
+function dateSortKeyRU(text = "") {
+  // Extracts dd, month(word), HH:MM
+  const m = text
+    .toLowerCase()
+    .match(/(\d{1,2})\s+([а-яё]+)\s+(\d{1,2}):(\d{2})/i);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  const d = parseInt(m[1], 10);
+  const monWord = m[2];
+  const h = parseInt(m[3], 10);
+  const mm = parseInt(m[4], 10);
+  const monKey = Object.keys(RU_MONTHS).find((k) => monWord.startsWith(k));
+  const mon = monKey ? RU_MONTHS[monKey] : 12;
+  // Build comparable number: MMDDHHMM
+  return mon * 1000000 + d * 10000 + h * 100 + mm;
 }
 
 setInterval(async () => {

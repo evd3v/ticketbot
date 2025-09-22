@@ -31,6 +31,23 @@ function groupByTitle(sessions) {
   return Array.from(map.entries()).map(([title, items]) => ({ title, items }));
 }
 
+function dateKeyRU(text = '') {
+  // supports: "05 октября 18:00", "9 сентября 19:00" etc.
+  const m = text.trim().toLowerCase().match(/(\d{1,2})\s+([а-яё]+)\s+(\d{1,2}):(\d{2})/);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  const d = parseInt(m[1], 10);
+  const monWord = m[2];
+  const h = parseInt(m[3], 10);
+  const mm = parseInt(m[4], 10);
+  const months = {
+    'январ': 1, 'феврал': 2, 'март': 3, 'апрел': 4, 'мая': 5,
+    'июн': 6, 'июл': 7, 'август': 8, 'сентябр': 9, 'октябр': 10, 'ноябр': 11, 'декабр': 12,
+  };
+  const monKey = Object.keys(months).find(k => monWord.startsWith(k));
+  const mon = monKey ? months[monKey] : 12;
+  return mon * 1000000 + d * 10000 + h * 100 + mm; // MMDDHHMM
+}
+
 function renderSessions(sessions) {
   listEl.innerHTML = '';
 
@@ -49,8 +66,9 @@ function renderSessions(sessions) {
 
     const inner = document.createElement('div');
     inner.className = 'group-items';
-
-    g.items.forEach((s) => {
+    // sort by date ascending within group
+    const sorted = [...g.items].sort((a, b) => dateKeyRU(a.date) - dateKeyRU(b.date));
+    sorted.forEach((s) => {
       const item = document.createElement('label');
       item.className = 'item';
       item.innerHTML = `
@@ -142,6 +160,33 @@ listEl.addEventListener('change', (e) => {
     }
   }
 });
+
+// Unsubscribe all button
+const unsubAllBtn = document.getElementById('unsubAllBtn');
+if (unsubAllBtn) {
+  unsubAllBtn.addEventListener('click', async () => {
+    try {
+      if (!confirm('Снять все подписки?')) return;
+      state.sessions = state.sessions.map(s => ({ ...s, subscribed: false }));
+      renderSessions(state.sessions);
+      setStatus('Сохранение...', 'info');
+      const initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
+      const res = await fetch(`/api/subscriptions?initData=${encodeURIComponent(initData)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscriptions: [] }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'API_ERROR');
+      setStatus('Все подписки сняты', 'success');
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
+    } catch (e) {
+      console.error(e);
+      setStatus('Ошибка снятия подписок', 'error');
+      if (tg?.HapticFeedback) tg.HapticFeedback.notificationOccurred('error');
+    }
+  });
+}
 
 if (tg) {
   tg.ready();
