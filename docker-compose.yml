@@ -7,5 +7,10 @@ services:
     restart: always  # Automatically restart the bot if it crashes
     environment:
       - NODE_ENV=production
+      # Optionally set WEB_APP_URL to a public HTTPS URL when deploying
+      # - WEB_APP_URL=https://your-domain.tld/webapp
     volumes:
       - ./:/app  # Map the current directory to the container
+      - /app/node_modules  # Preserve node_modules inside the container
+    ports:
+      - "12001:12001"  # Expose the web server for the Mini App

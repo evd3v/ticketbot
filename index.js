@@ -1,11 +1,28 @@
 import axios from "axios";
 import TeleBot from "telebot";
 import qs from "qs";
+import express from "express";
+import path from "path";
+import fs from "fs";
+import crypto from "crypto";
+import { fileURLToPath } from "url";
+import Database from "better-sqlite3";
+import { load as cheerioLoad } from "cheerio";
 
 const TELEGRAM_BOT_TOKEN = "7779682896:AAGCT0knRD9IzLJB6tArnFmRHP8R7yirwoc";
 
-const ADMIN_CHAT_ID = 875484579;
-const ANGEL_CHAT_ID = 384686618;
+// const ADMIN_CHAT_ID = 875484579;
+// const ANGEL_CHAT_ID = 384686618;
+
+const PORT = process.env.PORT || 12001;
+const WEB_APP_URL = process.env.WEB_APP_URL || "http://localhost:12001/webapp";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const BASE_URL = "https://quicktickets.ru";
+const ORG_ALIAS = "orel-teatr-svobodnoe-prostranstvo";
+const ORG_URL = `${BASE_URL}/${ORG_ALIAS}`;
 
 let isOrderBooked = false;
 
@@ -15,26 +32,26 @@ const SESSIONS = [
     date: "Анна, сны. 05 октября 18:00",
     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2809",
   },
-    {
-        id: "2804",
-        date: "Яга. 08 октября 19:00",
-        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2804",
-    },
-    {
-        id: "2805",
-        date: "Яга. 09 октября 19:00",
-        link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2805",
-    },
-    // {
-    //     id: "2776",
-    //     date: "21 сентября 18:00",
-    //     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2776",
-    // },
-    // {
-    //     id: "2777",
-    //     date: "24 сентября 19:00",
-    //     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2777",
-    // },
+  {
+    id: "2804",
+    date: "Яга. 08 октября 19:00",
+    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2804",
+  },
+  {
+    id: "2805",
+    date: "Яга. 09 октября 19:00",
+    link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2805",
+  },
+  // {
+  //     id: "2776",
+  //     date: "21 сентября 18:00",
+  //     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2776",
+  // },
+  // {
+  //     id: "2777",
+  //     date: "24 сентября 19:00",
+  //     link: "https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2777",
+  // },
   // {id: '2439', date: '10 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2439'},
   // {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
 ];
@@ -242,7 +259,7 @@ const extendBooking = async (id) => {
     console.log("ошибка в процессе продления бронирования");
   }
 };
- 
+
 // Ensure we are in polling mode: delete any existing webhook to avoid 409 Conflict errors
 const ensurePollingMode = async () => {
   try {
@@ -253,7 +270,9 @@ const ensurePollingMode = async () => {
     if (!res?.data?.ok) {
       console.log("[bot.warn] deleteWebhook returned non-ok:", res?.data);
     } else {
-      console.log("[bot.info] Webhook deleted (if existed). Using getUpdates polling.");
+      console.log(
+        "[bot.info] Webhook deleted (if existed). Using getUpdates polling."
+      );
     }
   } catch (e) {
     console.log(
@@ -269,73 +288,398 @@ const bot = new TeleBot({
   token: TELEGRAM_BOT_TOKEN, // Required. Telegram Bot API token.
 });
 
+// ---------------------------
+// SQLite store
+// ---------------------------
+const DATA_DIR = path.join(__dirname, "data");
+await fs.promises.mkdir(DATA_DIR, { recursive: true });
+const DB_PATH = path.join(DATA_DIR, "ticketbot.db");
+const db = new Database(DB_PATH);
+db.pragma("journal_mode = WAL");
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY,
+  username TEXT,
+  first_name TEXT,
+  last_name TEXT
+);
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  date_text TEXT,
+  link TEXT
+);
+CREATE TABLE IF NOT EXISTS subscriptions (
+  user_id INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  PRIMARY KEY (user_id, session_id)
+);
+CREATE TABLE IF NOT EXISTS notify_state (
+  user_id INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  last_count INTEGER,
+  PRIMARY KEY (user_id, session_id)
+);
+`);
+
+const upsertUser = db.prepare(`
+  INSERT INTO users (id, username, first_name, last_name)
+  VALUES (@id, @username, @first_name, @last_name)
+  ON CONFLICT(id) DO UPDATE SET
+    username=excluded.username,
+    first_name=excluded.first_name,
+    last_name=excluded.last_name
+`);
+
+const upsertSessionStmt = db.prepare(`
+  INSERT INTO sessions (id, title, date_text, link)
+  VALUES (@id, @title, @date_text, @link)
+  ON CONFLICT(id) DO UPDATE SET
+    title=excluded.title,
+    date_text=excluded.date_text,
+    link=excluded.link
+`);
+
+const deleteUserSubsStmt = db.prepare(
+  `DELETE FROM subscriptions WHERE user_id = ?`
+);
+const insertUserSubStmt = db.prepare(
+  `INSERT OR IGNORE INTO subscriptions (user_id, session_id) VALUES (?, ?)`
+);
+const getUserSubsStmt = db.prepare(
+  `SELECT session_id FROM subscriptions WHERE user_id = ?`
+);
+const getAllSubscribedSessionIdsStmt = db.prepare(
+  `SELECT DISTINCT session_id FROM subscriptions`
+);
+const getSessionByIdStmt = db.prepare(
+  `SELECT id, title, date_text, link FROM sessions WHERE id = ?`
+);
+const getSubscribersForSessionStmt = db.prepare(
+  `SELECT user_id FROM subscriptions WHERE session_id = ?`
+);
+const getUserNotifyStateStmt = db.prepare(
+  `SELECT last_count FROM notify_state WHERE user_id = ? AND session_id = ?`
+);
+const upsertNotifyStateStmt = db.prepare(`
+  INSERT INTO notify_state (user_id, session_id, last_count) VALUES (?, ?, ?)
+  ON CONFLICT(user_id, session_id) DO UPDATE SET last_count=excluded.last_count
+`);
+
+// ---------------------------
+// Telegram WebApp initData verification
+// ---------------------------
+const verifyInitData = (initData) => {
+  try {
+    if (!initData || typeof initData !== "string") return null;
+    const params = new URLSearchParams(initData);
+    const hash = params.get("hash");
+    if (!hash) return null;
+    params.delete("hash");
+
+    const dataCheckArr = [];
+    for (const [key, value] of params) dataCheckArr.push(`${key}=${value}`);
+    dataCheckArr.sort();
+    const dataCheckString = dataCheckArr.join("\n");
+
+    // Secret key for WebApp verification = HMAC_SHA256("WebAppData", bot_token)
+    const secret = crypto
+      .createHmac("sha256", "WebAppData")
+      .update(TELEGRAM_BOT_TOKEN)
+      .digest();
+    const hmac = crypto
+      .createHmac("sha256", secret)
+      .update(dataCheckString)
+      .digest("hex");
+
+    if (hmac !== hash) return null;
+
+    const userJson = params.get("user");
+    if (!userJson) return null;
+    const user = JSON.parse(userJson);
+    if (!user?.id) return null;
+    return user; // { id, ... }
+  } catch (e) {
+    console.log("[auth.error] verifyInitData:", e?.message || e);
+    return null;
+  }
+};
+
+// ---------------------------
+// Scraping sessions from website with caching
+// ---------------------------
+let sessionsCache = { ts: 0, list: [] };
+const SESSIONS_TTL_MS = 60 * 1000; // 1 minute
+
+const scrapeSessions = async () => {
+  const url = ORG_URL;
+  const res = await axios.get(url, {
+    headers: {
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+      "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
+    },
+  });
+  const $ = cheerioLoad(res.data);
+  const found = new Map(); // id -> session
+
+  $(".elem[data-elem-type='event']").each((_, el) => {
+    const $el = $(el);
+    const title =
+      $el.find("h3 .underline").first().text().trim() ||
+      $el.find("h3").text().trim();
+    $el.find(".sessions .session-column a[href*='/s']").each((__, a) => {
+      const $a = $(a);
+      const href = $a.attr("href") || "";
+      const m = href.match(/\/s(\d+)/);
+      if (!m) return;
+      const id = m[1];
+      const dateText = $a.find(".underline").text().trim() || $a.text().trim();
+      const link = new URL(href, BASE_URL).toString();
+      if (!found.has(id)) {
+        found.set(id, { id, title, date: dateText, link });
+      }
+    });
+  });
+
+  return [...found.values()];
+};
+
+const getSessionsList = async () => {
+  const now = Date.now();
+  if (sessionsCache.list.length && now - sessionsCache.ts < SESSIONS_TTL_MS) {
+    return sessionsCache.list;
+  }
+  try {
+    const list = await scrapeSessions();
+    sessionsCache = { ts: now, list };
+    // persist to DB
+    const insertMany = db.transaction((items) => {
+      for (const s of items) {
+        upsertSessionStmt.run({
+          id: s.id,
+          title: s.title,
+          date_text: s.date,
+          link: s.link,
+        });
+      }
+    });
+    insertMany(list);
+    return list;
+  } catch (e) {
+    console.log("[scrape.error]", e?.message || e);
+    // fallback to DB sessions if cache empty
+    const rows = db
+      .prepare("SELECT id, title, date_text as date, link FROM sessions")
+      .all();
+    return rows;
+  }
+};
+
+// ---------------------------
+// Express server: static webapp + APIs
+// ---------------------------
+const app = express();
+app.use(express.json());
+app.use("/webapp", express.static(path.join(__dirname, "webapp")));
+
+app.get("/api/sessions", async (req, res) => {
+  const user = verifyInitData(req.query.initData);
+  if (!user)
+    return res.status(403).json({ ok: false, error: "INVALID_INIT_DATA" });
+  try {
+    upsertUser.run({
+      id: user.id,
+      username: user.username || null,
+      first_name: user.first_name || null,
+      last_name: user.last_name || null,
+    });
+  } catch (e) {
+    console.log("[db.error] upsertUser:", e?.message || e);
+  }
+  const list = await getSessionsList();
+  const rows = getUserSubsStmt.all(user.id);
+  const set = new Set(rows.map((r) => String(r.session_id)));
+  // subscribed first
+  const payload = list
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      date: s.date,
+      link: s.link,
+      subscribed: set.has(String(s.id)),
+    }))
+    .sort((a, b) => Number(b.subscribed) - Number(a.subscribed));
+  return res.json({ ok: true, sessions: payload });
+});
+
+app.post("/api/subscriptions", async (req, res) => {
+  const user = verifyInitData(req.query.initData);
+  if (!user)
+    return res.status(403).json({ ok: false, error: "INVALID_INIT_DATA" });
+  const { subscriptions: subs } = req.body || {};
+  if (!Array.isArray(subs)) {
+    return res
+      .status(400)
+      .json({ ok: false, error: "SUBSCRIPTIONS_ARRAY_REQUIRED" });
+  }
+  try {
+    upsertUser.run({
+      id: user.id,
+      username: user.username || null,
+      first_name: user.first_name || null,
+      last_name: user.last_name || null,
+    });
+    const norm = subs.map((x) => String(x));
+    // ensure sessions exist with minimal info
+    const ensure = db.transaction((ids) => {
+      for (const id of ids) {
+        const existing = getSessionByIdStmt.get(id);
+        if (!existing) {
+          upsertSessionStmt.run({
+            id,
+            title: null,
+            date_text: null,
+            link: `${ORG_URL}/s${id}`,
+          });
+        }
+      }
+    });
+    ensure(norm);
+
+    const tx = db.transaction((userId, ids) => {
+      deleteUserSubsStmt.run(userId);
+      for (const id of ids) insertUserSubStmt.run(userId, id);
+    });
+    tx(user.id, norm);
+    return res.json({ ok: true });
+  } catch (e) {
+    console.log("[db.error] save subs:", e?.message || e);
+    return res.status(500).json({ ok: false, error: "DB_ERROR" });
+  }
+});
+
+app.get("/", (req, res) => res.send("OK"));
+
+app.listen(PORT, () => {
+  console.log(`[server.info] Listening on :${PORT}`);
+  console.log(`[server.info] WebApp URL: ${WEB_APP_URL}`);
+});
+
+// ---------------------------
+// Bot commands: open WebApp
+// ---------------------------
+const webAppKeyboard = () => ({
+  inline_keyboard: [
+    [
+      {
+        text: "Открыть мини‑приложение",
+        web_app: { url: WEB_APP_URL },
+      },
+    ],
+  ],
+});
+
+bot.on("/start", (msg) => {
+  const chatId = msg.from?.id || msg.chat.id;
+  bot.sendMessage(
+    chatId,
+    "Управляйте подписками на спектакли через мини‑приложение:",
+    { replyMarkup: webAppKeyboard() }
+  );
+});
+
+bot.on("/manage", (msg) => {
+  const chatId = msg.from?.id || msg.chat.id;
+  bot.sendMessage(chatId, "Откройте мини‑приложение:", {
+    replyMarkup: webAppKeyboard(),
+  });
+});
+
+// Track last availability per session to send notifications only on change
+const lastAvailability = new Map(); // sessionId -> number
+
 setInterval(async () => {
-  for await (let session of SESSIONS) {
-    const {
-      response: { places },
-    } = await getPlaces(session.id);
+  try {
+    const sessionRows = getAllSubscribedSessionIdsStmt.all();
+    const sessionIds = sessionRows.map((r) => String(r.session_id));
+    for (const sid of sessionIds) {
+      try {
+        const {
+          response: { places },
+        } = await getPlaces(sid);
+        const {
+          response: { places: hallPlaces },
+        } = await getHallData(sid);
+        const placesKeys = Object.keys(places);
+        const hallPlacesKeys = Object.keys(hallPlaces);
+        const availablePlacesKeys = hallPlacesKeys.filter(
+          (key) => !placesKeys.includes(key)
+        );
+        const availableCount = availablePlacesKeys.length;
 
-    const {
-      response: { places: hallPlaces },
-    } = await getHallData(session.id);
+        const prevGlobal = lastAvailability.get(sid);
+        const changedGlobally =
+          prevGlobal === undefined || prevGlobal !== availableCount;
+        if (!changedGlobally) continue;
 
-    const placesKeys = Object.keys(places);
-    const hallPlacesKeys = Object.keys(hallPlaces);
+        const sessionInfo = getSessionByIdStmt.get(sid) || {
+          id: sid,
+          title: "Сеанс",
+          date_text: "",
+          link: `${ORG_URL}/s${sid}`,
+        };
 
-    const availablePlacesKeys = hallPlacesKeys.filter(
-      (key) => !placesKeys.includes(key)
-    );
+        const subs = getSubscribersForSessionStmt.all(sid);
+        let notified = 0;
+        for (const row of subs) {
+          const uid = Number(row.user_id);
+          const last = getUserNotifyStateStmt.get(uid, sid);
+          const lastCount = last ? last.last_count : null;
+          if (lastCount === availableCount) continue; // no change for this user
 
-    if (availablePlacesKeys.length > 0) {
-      bot.sendMessage(
-        ANGEL_CHAT_ID,
-        `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`
-      );
-      bot.sendMessage(
-        ADMIN_CHAT_ID,
-        `На сеанс ${session.date} есть ${availablePlacesKeys.length} доступных мест!\nСсылка на покупку: ${session.link}`
-      );
+          try {
+            if (availableCount > 0) {
+              await bot.sendMessage(
+                uid,
+                `🎟️ Доступно ${availableCount} мест на сеанс: ${
+                  sessionInfo.title
+                }${
+                  sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
+                }\nСсылка: ${sessionInfo.link}`
+              );
+            } else {
+              await bot.sendMessage(
+                uid,
+                `❌ Билеты на сеанс ${sessionInfo.title}${
+                  sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
+                } закончились.`
+              );
+            }
+            upsertNotifyStateStmt.run(uid, sid, availableCount);
+            notified += 1;
+          } catch (e) {
+            console.log(`[notify.error] user ${uid}:`, e?.message || e);
+          }
+        }
 
-      // if (!isOrderBooked) {
-      //   bot.sendMessage(ANGEL_CHAT_ID, `Попытка бронирования...`);
-      //   bot.sendMessage(ADMIN_CHAT_ID, `Попытка бронирования...`);
-      //
-      //   const res = await makeOrder(session.id, availablePlacesKeys[0]);
-      //
-      //   if (res?.data?.result === "error") {
-      //     bot.sendMessage(
-      //       ANGEL_CHAT_ID,
-      //       `Ошибка в процессе бронирования, билет уже купили :(`
-      //     );
-      //     bot.sendMessage(
-      //       ADMIN_CHAT_ID,
-      //       `Ошибка в процессе бронирования, билет уже купили :(`
-      //     );
-      //     return;
-      //   }
-      //
-      //   await confirmBooking();
-      //
-      //   setTimeout(() => {
-      //     bot.sendMessage(ANGEL_CHAT_ID, `Бронь закончилась :(`);
-      //     bot.sendMessage(ADMIN_CHAT_ID, `Бронь закончилась :(`);
-      //     isOrderBooked = false;
-      //   }, 60000 * 3);
-      //   bot.sendMessage(
-      //     ANGEL_CHAT_ID,
-      //     `Билет забронирован! Есть 3 минуты на оплату!\nСсылка: https://quicktickets.ru/ordering/anytickets`
-      //   );
-      //   bot.sendMessage(
-      //     ADMIN_CHAT_ID,
-      //     `Билет забронирован! Есть 3 минуты на оплату!\nСсылка: https://quicktickets.ru/ordering/anytickets`
-      //   );
-      //   isOrderBooked = true;
-      // }
+        if (notified > 0) {
+          console.log(
+            `[notify.info] session ${sid}: notified ${notified} users (available=${availableCount})`
+          );
+        }
+        lastAvailability.set(sid, availableCount);
+      } catch (e) {
+        console.log(`[poll.error] session ${sid}:`, e?.message || e);
+      }
     }
+  } catch (e) {
+    console.log("[poll.error] loop:", e?.message || e);
   }
 }, 5000);
 
-bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
+// bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
 
 // setInterval(() => {
 //   bot.sendMessage(ADMIN_CHAT_ID, "Опрос идет, все ок!");
