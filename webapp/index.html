@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Подписки на спектакли</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Подписки</h1>
+    <p class="hint">Выберите сеансы, на которые хотите получать уведомления.</p>
+    <div class="subs-wrap">
+      <div class="subs-title">Ваши подписки</div>
+      <div id="subs" class="subs"></div>
+    </div>
+
+    <div id="list" class="list"></div>
+
+    <div class="actions">
+      <button id="saveBtn" class="btn primary">Сохранить</button>
+      <span id="status" class="status"></span>
+    </div>
+  </div>
+
+  <script src="./main.js" type="module"></script>
+</body>
+</html>
