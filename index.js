@@ -489,6 +489,11 @@ app.get("/webapp", (req, res) => {
   res.sendFile(path.join(__dirname, "webapp", "index.html"));
 });
 
+// Serve Mini App index for /webapp/ (with trailing slash)
+app.get("/webapp/", (req, res) => {
+  res.sendFile(path.join(__dirname, "webapp", "index.html"));
+});
+
 app.get("/api/sessions", async (req, res) => {
   const user = verifyInitData(req.query.initData);
   if (!user)
