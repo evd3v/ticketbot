@@ -13,8 +13,8 @@ RUN npm install --omit=dev
 # Copy the rest of the project files into the container
 COPY . .
 
-# Expose the port the app runs on (if needed)
-EXPOSE 10000
+# Expose the port the app runs on (internal, fronted by Nginx)
+EXPOSE 10010
 
 # Command to run your Node.js app
 CMD ["node", "index.js"]

@@ -14,8 +14,8 @@ const TELEGRAM_BOT_TOKEN = "7779682896:AAGCT0knRD9IzLJB6tArnFmRHP8R7yirwoc";
 const ADMIN_CHAT_ID = 875484579;
 const ANGEL_CHAT_ID = 384686618;
 
-const PORT = process.env.PORT || 10000;
-const WEB_APP_URL = process.env.WEB_APP_URL || "http://localhost:10000/webapp";
+const PORT = process.env.PORT || 10010; // internal, fronted by Nginx
+const WEB_APP_URL = process.env.WEB_APP_URL || "http://localhost:10000/webapp"; // public via Nginx
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

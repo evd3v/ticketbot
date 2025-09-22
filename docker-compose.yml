@@ -4,15 +4,24 @@ services:
   telegram-bot:
     build: .
     container_name: telegram-bot
-    restart: always  # Automatically restart the bot if it crashes
+    restart: always
     environment:
       - NODE_ENV=production
       # Optionally set WEB_APP_URL to a public HTTPS URL when deploying
       # - WEB_APP_URL=https://your-domain.tld/webapp
     volumes:
       - app_data:/app/data  # Persist SQLite data only
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: telegram-bot-nginx
+    restart: always
+    depends_on:
+      - telegram-bot
     ports:
-      - "10000:10000"  # Expose the web server for the Mini App
+      - "10000:80"  # Public entrypoint for Mini App and API
 
 volumes:
   app_data:
