@@ -484,6 +484,11 @@ const app = express();
 app.use(express.json());
 app.use("/webapp", express.static(path.join(__dirname, "webapp")));
 
+// Serve Mini App index for /webapp without trailing slash
+app.get("/webapp", (req, res) => {
+  res.sendFile(path.join(__dirname, "webapp", "index.html"));
+});
+
 app.get("/api/sessions", async (req, res) => {
   const user = verifyInitData(req.query.initData);
   if (!user)
