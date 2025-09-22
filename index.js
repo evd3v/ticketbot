@@ -732,8 +732,7 @@ const replyWebAppKeyboard = () => ({
   one_time_keyboard: false,
 });
 
-bot.on("/start", (msg) => {
-  const chatId = msg.from?.id || msg.chat.id;
+function sendIntro(chatId) {
   const text = [
     `<b>Привет!</b> Я бот, который помогает отслеживать появление билетов в театре «Свободное пространство».`,
     ``,
@@ -746,18 +745,54 @@ bot.on("/start", (msg) => {
     ``,
     `<b>Открыть мини‑приложение:</b> <a href="${WEB_APP_URL}">перейти по ссылке</a>`,
   ].join("\n");
+  bot.sendMessage(chatId, text, { parseMode: "HTML", replyMarkup: replyWebAppKeyboard() });
+}
 
-  bot.sendMessage(chatId, text, {
-    parseMode: "HTML",
-    replyMarkup: replyWebAppKeyboard(),
-  });
+function isCmd(text = "", cmd) {
+  // Matches /cmd, /cmd@BotName and optional arguments after a space
+  const re = new RegExp(`^\\/${cmd}(?:@\\w+)?(?:\\s|$)`, "i");
+  return re.test(text);
+}
+
+// Explicit command handlers (TeleBot supports this form)
+bot.on("/start", (msg) => {
+  const chatId = msg.from?.id || msg.chat?.id;
+  console.log(`[bot.info] /start (command) from ${chatId}`);
+  if (chatId) sendIntro(chatId);
+});
+
+bot.on("/help", (msg) => {
+  const chatId = msg.from?.id || msg.chat?.id;
+  console.log(`[bot.info] /help (command) from ${chatId}`);
+  if (chatId) sendIntro(chatId);
 });
 
 bot.on("/manage", (msg) => {
-  const chatId = msg.from?.id || msg.chat.id;
-  bot.sendMessage(chatId, "Откройте мини‑приложение:", {
-    replyMarkup: webAppKeyboard(),
-  });
+  const chatId = msg.from?.id || msg.chat?.id;
+  console.log(`[bot.info] /manage (command) from ${chatId}`);
+  if (chatId)
+    bot.sendMessage(chatId, "Откройте мини‑приложение:", {
+      replyMarkup: webAppKeyboard(),
+    });
+});
+
+bot.on("text", (msg) => {
+  try {
+    const chatId = msg.from?.id || msg.chat?.id;
+    const text = msg.text || "";
+    if (!chatId) return;
+
+    if (isCmd(text, "start") || isCmd(text, "help")) {
+      console.log(`[bot.info] Received /start or /help from ${chatId}`);
+      return sendIntro(chatId);
+    }
+    if (isCmd(text, "manage")) {
+      console.log(`[bot.info] Received /manage from ${chatId}`);
+      return bot.sendMessage(chatId, "Откройте мини‑приложение:", { replyMarkup: webAppKeyboard() });
+    }
+  } catch (e) {
+    console.log("[bot.error] text handler:", e?.message || e);
+  }
 });
 
 // Track last availability per session to send notifications only on change
