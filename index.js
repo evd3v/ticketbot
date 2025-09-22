@@ -761,7 +761,7 @@ function sendIntro(chatId) {
   ].join("\n");
   const options = CAN_USE_WEB_APP
     ? { parseMode: "HTML", replyMarkup: replyWebAppKeyboard() }
-    : { parseMode: "HTML", replyMarkup: webAppKeyboard() };
+    : { parseMode: "HTML" }; // no keyboard on non-HTTPS
   safeSendMessage(chatId, text, options);
 }
 
@@ -787,10 +787,19 @@ bot.on("/help", (msg) => {
 bot.on("/manage", (msg) => {
   const chatId = msg.from?.id || msg.chat?.id;
   console.log(`[bot.info] /manage (command) from ${chatId}`);
-  if (chatId)
-    safeSendMessage(chatId, "Откройте мини‑приложение:", {
-      replyMarkup: webAppKeyboard(),
-    });
+  if (chatId) {
+    if (CAN_USE_WEB_APP) {
+      safeSendMessage(chatId, "Откройте мини‑приложение:", {
+        replyMarkup: webAppKeyboard(),
+      });
+    } else {
+      safeSendMessage(
+        chatId,
+        `Откройте мини‑приложение: <a href="${WEB_APP_URL}">${WEB_APP_URL}</a>`,
+        { parseMode: "HTML" }
+      );
+    }
+  }
 });
 
 bot.on("text", (msg) => {
@@ -798,6 +807,8 @@ bot.on("text", (msg) => {
     const chatId = msg.from?.id || msg.chat?.id;
     const text = msg.text || "";
     if (!chatId) return;
+    // Avoid double handling: explicit /command handlers are already set
+    if (/^\//.test(text)) return;
 
     if (isCmd(text, "start") || isCmd(text, "help")) {
       console.log(`[bot.info] Received /start or /help from ${chatId}`);
@@ -805,7 +816,10 @@ bot.on("text", (msg) => {
     }
     if (isCmd(text, "manage")) {
       console.log(`[bot.info] Received /manage from ${chatId}`);
-      return safeSendMessage(chatId, "Откройте мини‑приложение:", { replyMarkup: webAppKeyboard() });
+      if (CAN_USE_WEB_APP) {
+        return safeSendMessage(chatId, "Откройте мини‑приложение:", { replyMarkup: webAppKeyboard() });
+      }
+      return safeSendMessage(chatId, `Откройте мини‑приложение: <a href="${WEB_APP_URL}">${WEB_APP_URL}</a>`, { parseMode: "HTML" });
     }
   } catch (e) {
     console.log("[bot.error] text handler:", e?.message || e);
