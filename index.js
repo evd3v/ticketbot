@@ -83,7 +83,8 @@ const getPlaces = async (id) => {
 
     return response.data;
   } catch (e) {
-    console.log("Ошибка в процессе получения мест");
+    console.log("[http.error] getPlaces:", e?.response?.data || e?.message || e);
+    throw e;
   }
 };
 
@@ -124,8 +125,9 @@ const getHallData = async (id) => {
       }
     );
     return response.data;
-  } catch (error) {
-    console.log("ошибка в процессе получения доступных места");
+  } catch (e) {
+    console.log("[http.error] getHallData:", e?.response?.data || e?.message || e);
+    throw e;
   }
 };
 
