@@ -63,7 +63,7 @@ const getPlaces = async (id) => {
           "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
           "api-id": "quick-tickets",
           authorization:
-            "Basic NTA3MDRlY2RhOGViMzc3M2UzMjBjY2NkZjU0ZDM0NWQyNTIxZmMyNjhhNGM3OGM2MDJkM2ZhNWRmMmMyMDAwNA==",
+            "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
           "cache-control": "no-cache",
           origin: "https://hall.quicktickets.ru",
           pragma: "no-cache",
@@ -107,7 +107,7 @@ const getHallData = async (id) => {
           "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
           "api-id": "quick-tickets",
           authorization:
-            "Basic NTA3MDRlY2RhOGViMzc3M2UzMjBjY2NkZjU0ZDM0NWQyNTIxZmMyNjhhNGM3OGM2MDJkM2ZhNWRmMmMyMDAwNA==",
+            "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
           "cache-control": "no-cache",
           origin: "https://hall.quicktickets.ru",
           pragma: "no-cache",
