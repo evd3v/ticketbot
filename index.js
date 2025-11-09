@@ -20,6 +20,7 @@ const ANGEL_CHAT_ID = 384686618;
 const PORT = process.env.PORT || 10010; // internal, fronted by Nginx
 const WEB_APP_URL = process.env.WEB_APP_URL || "http://localhost:10000/webapp"; // public via Nginx
 const CAN_USE_WEB_APP = /^https:\/\//i.test(WEB_APP_URL);
+const QT_USER_ID = process.env.QT_USER_ID || "1190633";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,7 +54,7 @@ const getPlaces = async (id) => {
         params: {
           scope: "qt",
           panel: "site",
-          user_id: "0",
+          user_id: QT_USER_ID,
           organisation_alias: getOrgAliasForSession(id),
           elem_type: "session",
           elem_id: id,
@@ -70,14 +71,14 @@ const getPlaces = async (id) => {
           priority: "u=1, i",
           referer: "https://hall.quicktickets.ru/",
           "sec-ch-ua":
-            '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
+            '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
           "sec-ch-ua-mobile": "?0",
           "sec-ch-ua-platform": '"macOS"',
           "sec-fetch-dest": "empty",
           "sec-fetch-mode": "cors",
           "sec-fetch-site": "same-site",
           "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
         },
       }
     );
@@ -97,7 +98,7 @@ const getHallData = async (id) => {
         params: {
           scope: "qt",
           panel: "site",
-          user_id: "0",
+          user_id: QT_USER_ID,
           organisation_alias: getOrgAliasForSession(id),
           elem_type: "session",
           elem_id: id,
@@ -114,14 +115,14 @@ const getHallData = async (id) => {
           priority: "u=1, i",
           referer: "https://hall.quicktickets.ru/",
           "sec-ch-ua":
-            '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
+            '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
           "sec-ch-ua-mobile": "?0",
           "sec-ch-ua-platform": '"macOS"',
           "sec-fetch-dest": "empty",
           "sec-fetch-mode": "cors",
           "sec-fetch-site": "same-site",
           "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
         },
       }
     );
