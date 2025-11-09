@@ -48,6 +48,7 @@ function orgAliasOf(link = '') {
 const ORG_LABELS = {
   'orel-teatr-svobodnoe-prostranstvo': 'Свободное пространство',
   'orel-teatr-kukol': 'Театр кукол',
+  'orel-teatr-turgeneva': 'Театр Тургенева'
 };
 
 function updateOrgFilterOptions() {

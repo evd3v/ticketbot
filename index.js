@@ -28,6 +28,7 @@ const BASE_URL = "https://quicktickets.ru";
 const ORG_ALIASES = [
   "orel-teatr-svobodnoe-prostranstvo",
   "orel-teatr-kukol",
+  'orel-teatr-turgeneva'
 ];
 
 function getOrgAliasForSession(id) {
