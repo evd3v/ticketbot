@@ -83,46 +83,57 @@ function buildQtParams(id, alias) {
   };
 }
 
-async function requestQt(endpoint, id, alias) {
-  await ensureQtSession(false);
+async function requestQt(endpoint, id, alias, opts = {}) {
+  const useCookies = !!opts.useCookies;
   const headers = { ...buildQtHeaders() };
-  const cookieHeader = getCookieHeader();
-  if (cookieHeader) headers["cookie"] = cookieHeader;
+  if (useCookies) {
+    await ensureQtSession(false);
+    const cookieHeader = getCookieHeader();
+    if (cookieHeader) headers["cookie"] = cookieHeader;
+  }
   try {
     const response = await axios.get(endpoint, {
       params: buildQtParams(id, alias),
       headers,
     });
+    if (response?.headers?.["set-cookie"]) applySetCookie(response.headers["set-cookie"]);
     return response.data;
   } catch (e) {
     const type = e?.response?.data?.error?.type;
     const status = e?.response?.status;
-    if (status === 400 && type === "invalid_token") {
+    if (status === 400 && type === "invalid_token" && useCookies) {
+      console.log(`[http.warn] ${endpoint} invalid_token for id=${id}, alias=${alias} → relogin`);
       await ensureQtSession(true);
-      const headers2 = { ...buildQtHeaders() };
-      const cookieHeader2 = getCookieHeader();
-      if (cookieHeader2) headers2["cookie"] = cookieHeader2;
-      const retry = await axios.get(endpoint, {
-        params: buildQtParams(id, alias),
-        headers: headers2,
-      });
-      return retry.data;
+      return await requestQt(endpoint, id, alias, opts);
     }
     if (status === 404 && (type === "session_not_found" || type === "not_found")) {
       const fixed = await resolveSessionLink(id);
       if (fixed && fixed.alias && fixed.alias !== alias) {
-        const headers3 = { ...buildQtHeaders() };
-        const cookieHeader3 = getCookieHeader();
-        if (cookieHeader3) headers3["cookie"] = cookieHeader3;
-        const retry2 = await axios.get(endpoint, {
-          params: buildQtParams(id, fixed.alias),
-          headers: headers3,
-        });
-        return retry2.data;
+        return await requestQt(endpoint, id, fixed.alias, opts);
       }
     }
     throw e;
   }
+}
+
+async function qtBootstrap() {
+  const headers = {
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  };
+  const cookie = getCookieHeader();
+  if (cookie) headers["cookie"] = cookie;
+  try {
+    const r = await axios.get("https://quicktickets.ru/", {
+      headers,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+    if (r?.headers?.["set-cookie"]) applySetCookie(r.headers["set-cookie"]);
+  } catch {}
 }
 
 async function resolveSessionLink(id) {
@@ -222,7 +233,14 @@ async function ensureQtSession(force) {
   const hasAuth = qtSession && qtSession.cookies && qtSession.cookies.qt__auth;
   if (!force && hasAuth) return;
   if (loginInFlight) return loginInFlight;
-  loginInFlight = qtLogin();
+  loginInFlight = (async () => {
+    await qtBootstrap();
+    if (!QT_LOGIN_EMAIL || !QT_LOGIN_PASSWORD) {
+      console.log("[auth.warn] QT_LOGIN_EMAIL/QT_LOGIN_PASSWORD not set; cannot login");
+      return;
+    }
+    await qtLogin();
+  })();
   try {
     await loginInFlight;
   } finally {
@@ -265,11 +283,15 @@ async function qtLogin() {
     });
     const setCookie = res.headers?.["set-cookie"];
     applySetCookie(setCookie);
+    const keys = Object.keys(qtSession.cookies || {});
+    console.log(`[auth.info] login ok, cookies: ${keys.join(', ')}`);
   } catch (e) {
+    const st = e?.response?.status;
+    console.log("[auth.error] login failed:", st || e?.message || e);
   }
 }
 
-async function fetchQtDataWithAlias(endpoint, id) {
+async function fetchQtDataWithAlias(endpoint, id, opts = {}) {
   let alias = getOrgAliasForSession(id);
   if (!alias) {
     const fixed = await resolveSessionLink(id);
@@ -280,14 +302,15 @@ async function fetchQtDataWithAlias(endpoint, id) {
     }
     alias = fixed.alias;
   }
-  return await requestQt(endpoint, id, alias);
+  return await requestQt(endpoint, id, alias, opts);
 }
 
 const getPlaces = async (id) => {
   try {
     const data = await fetchQtDataWithAlias(
       "https://api.quicktickets.ru/v1/anyticket/anyticket",
-      id
+      id,
+      { useCookies: true }
     );
     return data;
   } catch (e) {
@@ -300,7 +323,8 @@ const getHallData = async (id) => {
   try {
     const data = await fetchQtDataWithAlias(
       "https://api.quicktickets.ru/v1/hall/hall",
-      id
+      id,
+      { useCookies: false }
     );
     return data;
   } catch (e) {
@@ -309,10 +333,7 @@ const getHallData = async (id) => {
   }
 };
 
-
-// Ensure we are in polling mode: delete any existing webhook to avoid 409 Conflict errors
-const ensurePollingMode = async () => {
-  try {
+// ... rest of the code remains the same ...
     const res = await axios.get(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`,
       { params: { drop_pending_updates: true } }
@@ -645,11 +666,11 @@ app.post("/api/subscriptions", async (req, res) => {
       for (const sid of added) {
         try {
           const {
-            response: { places },
-          } = await getPlaces(sid);
-          const {
             response: { places: hallPlaces },
           } = await getHallData(sid);
+          const {
+            response: { places },
+          } = await getPlaces(sid);
           const placesKeys = Object.keys(places);
           const hallPlacesKeys = Object.keys(hallPlaces);
           const availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
@@ -979,11 +1000,11 @@ setInterval(async () => {
     for (const sid of sessionIds) {
       try {
         const {
-          response: { places },
-        } = await getPlaces(sid);
-        const {
           response: { places: hallPlaces },
         } = await getHallData(sid);
+        const {
+          response: { places },
+        } = await getPlaces(sid);
         const placesKeys = Object.keys(places);
         const hallPlacesKeys = Object.keys(hallPlaces);
         const availablePlacesKeys = hallPlacesKeys.filter(
