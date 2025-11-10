@@ -23,6 +23,7 @@ const CAN_USE_WEB_APP = /^https:\/\//i.test(WEB_APP_URL);
 const QT_USER_ID = process.env.QT_USER_ID || "1190633";
 const QT_LOGIN_EMAIL = process.env.QT_LOGIN_EMAIL || "";
 const QT_LOGIN_PASSWORD = process.env.QT_LOGIN_PASSWORD || "";
+const QT_AUTH_B64 = process.env.QT_AUTH_B64 || "";
 
 function shq(s) {
   const str = String(s ?? "");
@@ -125,8 +126,7 @@ function buildQtHeaders() {
     accept: "application/json, text/plain, */*",
     "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
     "api-id": "quick-tickets",
-    authorization:
-      "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
+    authorization: "Basic " + (QT_AUTH_B64 || "OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ=="),
     "cache-control": "no-cache",
     origin: "https://hall.quicktickets.ru",
     pragma: "no-cache",
@@ -171,7 +171,9 @@ async function requestQt(endpoint, id, alias, opts = {}) {
       const base = { ...params };
       let lastErr = null;
       const variants = [
-        // Сначала повторяем браузерный профиль, затем постепенно упрощаем
+        // Сначала максимально ближе к рабочему кейсу: без cookies
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  withCookies: false },
+        // Затем повторяем браузерный профиль, затем постепенно упрощаем
         { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: false },
         { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
         { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
@@ -189,9 +191,11 @@ async function requestQt(endpoint, id, alias, opts = {}) {
         if (v.withUserId === false) delete p2.user_id;
         if (v.withUserId === "zero") p2.user_id = 0;
         const h2 = { ...headers, "api-id": v.apiId };
-        h2["x-requested-with"] = "XMLHttpRequest";
-        h2["sec-fetch-site"] = "same-origin";
+        h2["sec-fetch-site"] = "same-site";
         if (!v.withAuth) delete h2.authorization;
+        if (Object.prototype.hasOwnProperty.call(v, "withCookies") && v.withCookies === false) {
+          delete h2.cookie;
+        }
         if (h2.cookie && v.dropQtAuth) h2.cookie = stripCookie(h2.cookie, ["qt__auth"]);
         const curl2 = buildCurl("GET", endpoint, p2, h2, null, true);
         console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl2}`);
