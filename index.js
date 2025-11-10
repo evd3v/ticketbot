@@ -24,6 +24,60 @@ const QT_USER_ID = process.env.QT_USER_ID || "1190633";
 const QT_LOGIN_EMAIL = process.env.QT_LOGIN_EMAIL || "";
 const QT_LOGIN_PASSWORD = process.env.QT_LOGIN_PASSWORD || "";
 
+function shq(s) {
+  const str = String(s ?? "");
+  return "'" + str.replace(/'/g, "'\\''") + "'";
+}
+
+function maskVal(v) {
+  const s = String(v || "");
+  if (s.length <= 6) return "*".repeat(s.length || 3);
+  return s.slice(0, 3) + "***" + s.slice(-2);
+}
+
+function maskCookie(c) {
+  try {
+    return String(c)
+      .split(/;\s*/)
+      .map((p) => {
+        const idx = p.indexOf("=");
+        if (idx < 0) return p;
+        const n = p.slice(0, idx);
+        const v = p.slice(idx + 1);
+        return n + "=" + maskVal(v);
+      })
+      .join("; ");
+  } catch {
+    return String(c || "");
+  }
+}
+
+function buildCurl(method, url, params, headers, data, maskCookies) {
+  const u = new URL(url);
+  if (params && typeof params === "object") {
+    for (const [k, v] of Object.entries(params)) {
+      if (v == null) continue;
+      u.searchParams.set(k, String(v));
+    }
+  }
+  const parts = ["curl", "-sS", "-X", method.toUpperCase(), shq(u.toString())];
+  if (headers && typeof headers === "object") {
+    for (const [k, v] of Object.entries(headers)) {
+      if (v == null) continue;
+      let hv = String(v);
+      const kl = k.toLowerCase();
+      if (maskCookies && (kl === "cookie" || kl === "authorization")) hv = maskCookie(hv);
+      parts.push("-H", shq(`${k}: ${hv}`));
+    }
+  }
+  if (data != null) {
+    let body = data;
+    if (typeof data !== "string") body = new URLSearchParams(data).toString();
+    parts.push("--data-raw", shq(body));
+  }
+  return parts.join(" ");
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -93,8 +147,11 @@ async function requestQt(endpoint, id, alias, opts = {}) {
     if (cookieHeader) headers["cookie"] = cookieHeader;
   }
   try {
+    const params = buildQtParams(id, alias);
+    const curl = buildCurl("GET", endpoint, params, headers, null, true);
+    console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl}`);
     const response = await axios.get(endpoint, {
-      params: buildQtParams(id, alias),
+      params,
       headers,
     });
     if (response?.headers?.["set-cookie"]) applySetCookie(response.headers["set-cookie"]);
@@ -129,6 +186,8 @@ async function qtBootstrap() {
   const cookie = getCookieHeader();
   if (cookie) headers["cookie"] = cookie;
   try {
+    const curl = buildCurl("GET", "https://quicktickets.ru/", null, headers, null, true);
+    console.log(`[http.debug] bootstrap curl: ${curl}`);
     const r = await axios.get("https://quicktickets.ru/", {
       headers,
       validateStatus: (s) => s >= 200 && s < 400,
@@ -277,6 +336,15 @@ async function qtLogin() {
   const cookie = getCookieHeader();
   if (cookie) headers["cookie"] = cookie;
   try {
+    const curl = buildCurl(
+      "POST",
+      "https://quicktickets.ru/user/login",
+      null,
+      headers,
+      body,
+      true
+    );
+    console.log(`[http.debug] login curl: ${curl}`);
     const res = await axios.post("https://quicktickets.ru/user/login", body, {
       headers,
       maxRedirects: 0,
