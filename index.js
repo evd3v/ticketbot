@@ -148,17 +148,40 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   }
   try {
     const params = buildQtParams(id, alias);
-    // Для hall/hall: убираем user_id из query, оставляем Authorization, api-id возвращаем к "quick-tickets"
-    if (/\/hall\/hall(?:\?|$)/.test(endpoint)) {
-      delete params.user_id;
-      headers["api-id"] = "quick-tickets";
+    const isHall = /\/hall\/hall(?:\?|$)/.test(endpoint);
+    if (isHall) {
+      const base = { ...params };
+      const variants = [
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true },
+        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: true },
+        { apiId: "hall", panel: "hall", scope: base.scope, withUserId: true },
+        { apiId: "hall", panel: "hall", scope: "hall", withUserId: true },
+        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: false },
+        { apiId: "hall", panel: "hall", scope: base.scope, withUserId: false },
+        { apiId: "hall", panel: "hall", scope: "hall", withUserId: false },
+      ];
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i];
+        const p2 = { ...base, scope: v.scope, panel: v.panel };
+        if (!v.withUserId) delete p2.user_id;
+        const h2 = { ...headers, "api-id": v.apiId };
+        const curl2 = buildCurl("GET", endpoint, p2, h2, null, true);
+        console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl2}`);
+        try {
+          const r2 = await axios.get(endpoint, { params: p2, headers: h2 });
+          if (r2?.headers?.["set-cookie"]) applySetCookie(r2.headers["set-cookie"]);
+          return r2.data;
+        } catch (err2) {
+          const t2 = err2?.response?.data?.error?.type;
+          if (t2 === "invalid_token") throw err2;
+          if (i === variants.length - 1) throw err2;
+          console.log(`[http.warn] hall variant failed: ${t2 || err2?.response?.status}`);
+        }
+      }
     }
     const curl = buildCurl("GET", endpoint, params, headers, null, true);
     console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl}`);
-    const response = await axios.get(endpoint, {
-      params,
-      headers,
-    });
+    const response = await axios.get(endpoint, { params, headers });
     if (response?.headers?.["set-cookie"]) applySetCookie(response.headers["set-cookie"]);
     return response.data;
   } catch (e) {
