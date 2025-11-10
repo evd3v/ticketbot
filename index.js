@@ -21,6 +21,8 @@ const PORT = process.env.PORT || 10010; // internal, fronted by Nginx
 const WEB_APP_URL = process.env.WEB_APP_URL || "http://localhost:10000/webapp"; // public via Nginx
 const CAN_USE_WEB_APP = /^https:\/\//i.test(WEB_APP_URL);
 const QT_USER_ID = process.env.QT_USER_ID || "1190633";
+const QT_LOGIN_EMAIL = process.env.QT_LOGIN_EMAIL || "";
+const QT_LOGIN_PASSWORD = process.env.QT_LOGIN_PASSWORD || "";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,44 +48,212 @@ function getOrgAliasForSession(id) {
   return ORG_ALIASES[0];
 }
 
+function buildQtHeaders() {
+  return {
+    accept: "application/json, text/plain, */*",
+    "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
+    "api-id": "quick-tickets",
+    authorization:
+      "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
+    "cache-control": "no-cache",
+    origin: "https://hall.quicktickets.ru",
+    pragma: "no-cache",
+    priority: "u=1, i",
+    referer: "https://hall.quicktickets.ru/",
+    "sec-ch-ua":
+      '\"Google Chrome\";v="141", \"Not?A_Brand\";v="8", \"Chromium\";v="141"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '\"macOS\"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-site",
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+  };
+}
+
+function buildQtParams(id, alias) {
+  return {
+    scope: "qt",
+    panel: "site",
+    user_id: QT_USER_ID,
+    organisation_alias: alias,
+    elem_type: "session",
+    elem_id: id,
+  };
+}
+
+async function requestQt(endpoint, id, alias) {
+  await ensureQtSession(false);
+  const headers = { ...buildQtHeaders() };
+  const cookieHeader = getCookieHeader();
+  if (cookieHeader) headers["cookie"] = cookieHeader;
+  try {
+    const response = await axios.get(endpoint, {
+      params: buildQtParams(id, alias),
+      headers,
+    });
+    return response.data;
+  } catch (e) {
+    const type = e?.response?.data?.error?.type;
+    const status = e?.response?.status;
+    if (status === 400 && type === "invalid_token") {
+      await ensureQtSession(true);
+      const headers2 = { ...buildQtHeaders() };
+      const cookieHeader2 = getCookieHeader();
+      if (cookieHeader2) headers2["cookie"] = cookieHeader2;
+      const retry = await axios.get(endpoint, {
+        params: buildQtParams(id, alias),
+        headers: headers2,
+      });
+      return retry.data;
+    }
+    throw e;
+  }
+}
+
+let qtSession = { cookies: {}, ts: 0 };
+
+function getSessionPath() {
+  return path.join(__dirname, "data", "qt_session.json");
+}
+
+function loadQtSession() {
+  try {
+    const p = getSessionPath();
+    const txt = fs.readFileSync(p, "utf8");
+    const json = JSON.parse(txt);
+    if (json && typeof json === "object") qtSession = json;
+  } catch {}
+}
+
+function saveQtSession() {
+  try {
+    const p = getSessionPath();
+    fs.writeFileSync(p, JSON.stringify(qtSession));
+  } catch {}
+}
+
+function applySetCookie(arr) {
+  if (!Array.isArray(arr)) return;
+  for (const line of arr) {
+    if (!line) continue;
+    const first = String(line).split(";")[0];
+    const idx = first.indexOf("=");
+    if (idx <= 0) continue;
+    const name = first.slice(0, idx).trim();
+    const value = first.slice(idx + 1).trim();
+    if (value) qtSession.cookies[name] = value;
+    else delete qtSession.cookies[name];
+  }
+  qtSession.ts = Date.now();
+  saveQtSession();
+}
+
+function getCookieHeader() {
+  try {
+    const parts = Object.entries(qtSession.cookies || {})
+      .filter(([k, v]) => k && v)
+      .map(([k, v]) => `${k}=${v}`);
+    return parts.length ? parts.join("; ") : "";
+  } catch {
+    return "";
+  }
+}
+
+let loginInFlight = null;
+
+async function ensureQtSession(force) {
+  loadQtSession();
+  const hasAuth = qtSession && qtSession.cookies && qtSession.cookies.qt__auth;
+  if (!force && hasAuth) return;
+  if (loginInFlight) return loginInFlight;
+  loginInFlight = qtLogin();
+  try {
+    await loginInFlight;
+  } finally {
+    loginInFlight = null;
+  }
+}
+
+async function qtLogin() {
+  if (!QT_LOGIN_EMAIL || !QT_LOGIN_PASSWORD) return;
+  const body = new URLSearchParams();
+  body.set("email", QT_LOGIN_EMAIL);
+  body.set("password", QT_LOGIN_PASSWORD);
+  const headers = {
+    accept: "*/*",
+    "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
+    "cache-control": "no-cache",
+    "content-type": "application/x-www-form-urlencoded; charset=UTF-8",
+    origin: "https://quicktickets.ru",
+    pragma: "no-cache",
+    priority: "u=1, i",
+    referer: "https://quicktickets.ru/",
+    "sec-ch-ua":
+      '\"Google Chrome\";v="141", \"Not?A_Brand\";v="8", \"Chromium\";v="141"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '\"macOS\"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+    "x-requested-with": "XMLHttpRequest",
+  };
+  const cookie = getCookieHeader();
+  if (cookie) headers["cookie"] = cookie;
+  try {
+    const res = await axios.post("https://quicktickets.ru/user/login", body, {
+      headers,
+      maxRedirects: 0,
+      validateStatus: (s) => s >= 200 && s < 400,
+    });
+    const setCookie = res.headers?.["set-cookie"];
+    applySetCookie(setCookie);
+  } catch (e) {
+  }
+}
+
+async function fetchQtDataWithAlias(endpoint, id) {
+  const initial = getOrgAliasForSession(id);
+  const order = [initial, ...ORG_ALIASES.filter((a) => a !== initial)];
+  let lastErr = null;
+  for (const alias of order) {
+    try {
+      const data = await requestQt(endpoint, id, alias);
+      if (alias !== initial) {
+        try {
+          const prev = getSessionByIdStmt.get(String(id)) || {};
+          upsertSessionStmt.run({
+            id: String(id),
+            title: prev.title || null,
+            date_text: prev.date_text || null,
+            link: `${BASE_URL}/${alias}/s${id}`,
+          });
+        } catch {}
+      }
+      return data;
+    } catch (e) {
+      const type = e?.response?.data?.error?.type;
+      const status = e?.response?.status;
+      if (status === 400 && type === "invalid_token") {
+        lastErr = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr || new Error("QT_ALIAS_RESOLVE_FAILED");
+}
+
 const getPlaces = async (id) => {
   try {
-    const response = await axios.get(
+    const data = await fetchQtDataWithAlias(
       "https://api.quicktickets.ru/v1/anyticket/anyticket",
-      {
-        params: {
-          scope: "qt",
-          panel: "site",
-          user_id: QT_USER_ID,
-          organisation_alias: getOrgAliasForSession(id),
-          elem_type: "session",
-          elem_id: id,
-        },
-        headers: {
-          accept: "application/json, text/plain, */*",
-          "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
-          "api-id": "quick-tickets",
-          authorization:
-            "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
-          "cache-control": "no-cache",
-          origin: "https://hall.quicktickets.ru",
-          pragma: "no-cache",
-          priority: "u=1, i",
-          referer: "https://hall.quicktickets.ru/",
-          "sec-ch-ua":
-            '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-          "sec-ch-ua-mobile": "?0",
-          "sec-ch-ua-platform": '"macOS"',
-          "sec-fetch-dest": "empty",
-          "sec-fetch-mode": "cors",
-          "sec-fetch-site": "same-site",
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        },
-      }
+      id
     );
-
-    return response.data;
+    return data;
   } catch (e) {
     console.log("[http.error] getPlaces:", e?.response?.data || e?.message || e);
     throw e;
@@ -92,41 +262,11 @@ const getPlaces = async (id) => {
 
 const getHallData = async (id) => {
   try {
-    const response = await axios.get(
+    const data = await fetchQtDataWithAlias(
       "https://api.quicktickets.ru/v1/hall/hall",
-      {
-        params: {
-          scope: "qt",
-          panel: "site",
-          user_id: QT_USER_ID,
-          organisation_alias: getOrgAliasForSession(id),
-          elem_type: "session",
-          elem_id: id,
-        },
-        headers: {
-          accept: "application/json, text/plain, */*",
-          "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
-          "api-id": "quick-tickets",
-          authorization:
-            "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
-          "cache-control": "no-cache",
-          origin: "https://hall.quicktickets.ru",
-          pragma: "no-cache",
-          priority: "u=1, i",
-          referer: "https://hall.quicktickets.ru/",
-          "sec-ch-ua":
-            '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-          "sec-ch-ua-mobile": "?0",
-          "sec-ch-ua-platform": '"macOS"',
-          "sec-fetch-dest": "empty",
-          "sec-fetch-mode": "cors",
-          "sec-fetch-site": "same-site",
-          "user-agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-        },
-      }
+      id
     );
-    return response.data;
+    return data;
   } catch (e) {
     console.log("[http.error] getHallData:", e?.response?.data || e?.message || e);
     throw e;
