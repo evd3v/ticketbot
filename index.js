@@ -85,6 +85,7 @@ function buildQtParams(id, alias) {
 
 async function requestQt(endpoint, id, alias, opts = {}) {
   const useCookies = !!opts.useCookies;
+  const didRetry = !!opts.didRetry;
   const headers = { ...buildQtHeaders() };
   if (useCookies) {
     await ensureQtSession(false);
@@ -101,10 +102,10 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   } catch (e) {
     const type = e?.response?.data?.error?.type;
     const status = e?.response?.status;
-    if (status === 400 && type === "invalid_token" && useCookies) {
+    if (status === 400 && type === "invalid_token" && useCookies && !didRetry) {
       console.log(`[http.warn] ${endpoint} invalid_token for id=${id}, alias=${alias} → relogin`);
       await ensureQtSession(true);
-      return await requestQt(endpoint, id, alias, opts);
+      return await requestQt(endpoint, id, alias, { ...opts, didRetry: true });
     }
     if (status === 404 && (type === "session_not_found" || type === "not_found")) {
       const fixed = await resolveSessionLink(id);
@@ -333,7 +334,8 @@ const getHallData = async (id) => {
   }
 };
 
-// ... rest of the code remains the same ...
+async function ensurePollingMode() {
+  try {
     const res = await axios.get(
       `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`,
       { params: { drop_pending_updates: true } }
@@ -351,7 +353,7 @@ const getHallData = async (id) => {
       e?.response?.data || e.message
     );
   }
-};
+}
 
 await ensurePollingMode();
 
