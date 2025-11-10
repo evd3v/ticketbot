@@ -52,6 +52,24 @@ function maskCookie(c) {
   }
 }
 
+function stripCookie(cookieHeader, names = []) {
+  try {
+    const set = new Set(names.map((x) => String(x).trim().toLowerCase()));
+    const parts = String(cookieHeader || "")
+      .split(/;\s*/)
+      .filter(Boolean)
+      .filter((p) => {
+        const idx = p.indexOf("=");
+        if (idx < 0) return false;
+        const n = p.slice(0, idx).trim().toLowerCase();
+        return !set.has(n);
+      });
+    return parts.join("; ");
+  } catch {
+    return String(cookieHeader || "");
+  }
+}
+
 function buildCurl(method, url, params, headers, data, maskCookies) {
   const u = new URL(url);
   if (params && typeof params === "object") {
@@ -151,20 +169,30 @@ async function requestQt(endpoint, id, alias, opts = {}) {
     const isHall = /\/hall\/hall(?:\?|$)/.test(endpoint);
     if (isHall) {
       const base = { ...params };
+      let lastErr = null;
       const variants = [
-        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true },
-        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: true },
-        { apiId: "hall", panel: "hall", scope: base.scope, withUserId: true },
-        { apiId: "hall", panel: "hall", scope: "hall", withUserId: true },
-        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: false },
-        { apiId: "hall", panel: "hall", scope: base.scope, withUserId: false },
-        { apiId: "hall", panel: "hall", scope: "hall", withUserId: false },
+        // Сначала повторяем браузерный профиль, затем постепенно упрощаем
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: false },
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
+        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
+        { apiId: "hall",          panel: "hall", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
+        { apiId: "hall",          panel: "hall", scope: "hall",  withUserId: true,  withAuth: true,  dropQtAuth: true  },
+        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: false, withAuth: true,  dropQtAuth: true  },
+        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: false, withAuth: false, dropQtAuth: true  },
+        { apiId: "hall",          panel: "hall", scope: base.scope, withUserId: false, withAuth: true,  dropQtAuth: true  },
+        { apiId: "hall",          panel: "hall", scope: "hall",  withUserId: false, withAuth: true,  dropQtAuth: true  },
+        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: "zero", withAuth: true, dropQtAuth: true },
       ];
       for (let i = 0; i < variants.length; i++) {
         const v = variants[i];
         const p2 = { ...base, scope: v.scope, panel: v.panel };
-        if (!v.withUserId) delete p2.user_id;
+        if (v.withUserId === false) delete p2.user_id;
+        if (v.withUserId === "zero") p2.user_id = 0;
         const h2 = { ...headers, "api-id": v.apiId };
+        h2["x-requested-with"] = "XMLHttpRequest";
+        h2["sec-fetch-site"] = "same-origin";
+        if (!v.withAuth) delete h2.authorization;
+        if (h2.cookie && v.dropQtAuth) h2.cookie = stripCookie(h2.cookie, ["qt__auth"]);
         const curl2 = buildCurl("GET", endpoint, p2, h2, null, true);
         console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl2}`);
         try {
@@ -172,12 +200,17 @@ async function requestQt(endpoint, id, alias, opts = {}) {
           if (r2?.headers?.["set-cookie"]) applySetCookie(r2.headers["set-cookie"]);
           return r2.data;
         } catch (err2) {
+          lastErr = err2;
           const t2 = err2?.response?.data?.error?.type;
-          if (t2 === "invalid_token") throw err2;
-          if (i === variants.length - 1) throw err2;
+          if (t2 === "invalid_token") {
+            console.log(`[http.warn] hall variant invalid_token, trying next variant`);
+            continue;
+          }
           console.log(`[http.warn] hall variant failed: ${t2 || err2?.response?.status}`);
+          continue;
         }
       }
+      if (lastErr) throw lastErr; // не делаем "generic" попытку для hall/hall
     }
     const curl = buildCurl("GET", endpoint, params, headers, null, true);
     console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl}`);
