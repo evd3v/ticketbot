@@ -44,10 +44,9 @@ function parseAuthMap(s) {
   }
 }
 
-const AUTH_MAP = parseAuthMap(QT_AUTH_MAP);
-
 function getAuthForAlias(alias) {
-  const a = AUTH_MAP && alias ? AUTH_MAP[alias] : null;
+  const MAP = parseAuthMap(QT_AUTH_MAP);
+  const a = MAP && alias ? MAP[alias] : null;
   return a || QT_AUTH_B64 || DEFAULT_AUTH_B64;
 }
 
