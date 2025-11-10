@@ -14,6 +14,43 @@ if (!TELEGRAM_BOT_TOKEN) {
   process.exit(1);
 }
 
+function parseAuthMap(s) {
+  const obj = {};
+  try {
+    if (!s) return obj;
+    let j = null;
+    try {
+      j = JSON.parse(s);
+    } catch {}
+    if (j && typeof j === "object") {
+      for (const [k, v] of Object.entries(j)) if (v) obj[String(k)] = String(v);
+      return obj;
+    }
+    const parts = String(s)
+      .split(/[;,\n]+/)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    for (const part of parts) {
+      const idx = part.indexOf("=");
+      if (idx > 0) {
+        const k = part.slice(0, idx).trim();
+        const v = part.slice(idx + 1).trim();
+        if (k && v) obj[k] = v;
+      }
+    }
+    return obj;
+  } catch {
+    return obj;
+  }
+}
+
+const AUTH_MAP = parseAuthMap(QT_AUTH_MAP);
+
+function getAuthForAlias(alias) {
+  const a = AUTH_MAP && alias ? AUTH_MAP[alias] : null;
+  return a || QT_AUTH_B64 || DEFAULT_AUTH_B64;
+}
+
 const ADMIN_CHAT_ID = 875484579;
 const ANGEL_CHAT_ID = 384686618;
 
@@ -24,6 +61,8 @@ const QT_USER_ID = process.env.QT_USER_ID || "1190633";
 const QT_LOGIN_EMAIL = process.env.QT_LOGIN_EMAIL || "";
 const QT_LOGIN_PASSWORD = process.env.QT_LOGIN_PASSWORD || "";
 const QT_AUTH_B64 = process.env.QT_AUTH_B64 || "";
+const QT_AUTH_MAP = process.env.QT_AUTH_MAP || "";
+const DEFAULT_AUTH_B64 = "OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==";
 
 function shq(s) {
   const str = String(s ?? "");
@@ -121,12 +160,12 @@ function getOrgAliasForSession(id) {
   return null;
 }
 
-function buildQtHeaders() {
+function buildQtHeaders(alias) {
   return {
     accept: "application/json, text/plain, */*",
     "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
     "api-id": "quick-tickets",
-    authorization: "Basic " + (QT_AUTH_B64 || "OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ=="),
+    authorization: "Basic " + getAuthForAlias(alias),
     "cache-control": "no-cache",
     origin: "https://hall.quicktickets.ru",
     pragma: "no-cache",
@@ -158,7 +197,7 @@ function buildQtParams(id, alias) {
 async function requestQt(endpoint, id, alias, opts = {}) {
   const useCookies = !!opts.useCookies;
   const didRetry = !!opts.didRetry;
-  const headers = { ...buildQtHeaders() };
+  const headers = { ...buildQtHeaders(alias) };
   if (useCookies) {
     await ensureQtSession(false);
     const cookieHeader = getCookieHeader();
