@@ -501,39 +501,47 @@ const verifyInitData = (initData) => {
 // ---------------------------
 let sessionsCache = { ts: 0, list: [] };
 const SESSIONS_TTL_MS = 60 * 1000; // 1 minute
+const SCRAPE_TIMEOUT_MS = 4000; // timeout for scraping quicktickets.ru pages
+const SESSIONS_TIME_BUDGET_MS = 2500; // overall time budget for /api/sessions
 
 const scrapeSessions = async () => {
   const combined = [];
   for (const alias of ORG_ALIASES) {
     const url = `${BASE_URL}/${alias}`;
-    const res = await axios.get(url, {
-      headers: {
-        "user-agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-        "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
-      },
-    });
-    const $ = cheerioLoad(res.data);
-    const found = new Map();
-    $(".elem[data-elem-type='event']").each((_, el) => {
-      const $el = $(el);
-      const title =
-        $el.find("h3 .underline").first().text().trim() ||
-        $el.find("h3").text().trim();
-      $el.find(".sessions .session-column a[href*='/s']").each((__, a) => {
-        const $a = $(a);
-        const href = $a.attr("href") || "";
-        const m = href.match(/\/s(\d+)/);
-        if (!m) return;
-        const id = m[1];
-        const dateText = $a.find(".underline").text().trim() || $a.text().trim();
-        const link = new URL(href, BASE_URL).toString();
-        if (!found.has(id)) {
-          found.set(id, { id, title, date: dateText, link });
-        }
+    try {
+      const res = await axios.get(url, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+          "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
+        },
+        timeout: SCRAPE_TIMEOUT_MS,
       });
-    });
-    combined.push(...found.values());
+      const $ = cheerioLoad(res.data);
+      const found = new Map();
+      $(".elem[data-elem-type='event']").each((_, el) => {
+        const $el = $(el);
+        const title =
+          $el.find("h3 .underline").first().text().trim() ||
+          $el.find("h3").text().trim();
+        $el.find(".sessions .session-column a[href*='/s']").each((__, a) => {
+          const $a = $(a);
+          const href = $a.attr("href") || "";
+          const m = href.match(/\/s(\d+)/);
+          if (!m) return;
+          const id = m[1];
+          const dateText = $a.find(".underline").text().trim() || $a.text().trim();
+          const link = new URL(href, BASE_URL).toString();
+          if (!found.has(id)) {
+            found.set(id, { id, title, date: dateText, link });
+          }
+        });
+      });
+      combined.push(...found.values());
+    } catch (e) {
+      console.log("[scrape.warn] alias", alias, e?.message || e);
+      continue;
+    }
   }
   return combined;
 };
@@ -544,7 +552,16 @@ const getSessionsList = async () => {
     return sessionsCache.list;
   }
   try {
-    const list = await scrapeSessions();
+    const list = await Promise.race([
+      scrapeSessions(),
+      new Promise((resolve) => setTimeout(() => resolve(null), SESSIONS_TIME_BUDGET_MS)),
+    ]);
+    if (!Array.isArray(list)) {
+      const rows = db
+        .prepare("SELECT id, title, date_text as date, link FROM sessions")
+        .all();
+      return rows;
+    }
     sessionsCache = { ts: now, list };
     // persist to DB
     const insertMany = db.transaction((items) => {
@@ -588,22 +605,24 @@ app.get("/webapp/", (req, res) => {
 
 app.get("/api/sessions", async (req, res) => {
   const user = verifyInitData(req.query.initData);
-  if (!user)
-    return res.status(403).json({ ok: false, error: "INVALID_INIT_DATA" });
-  try {
-    upsertUser.run({
-      id: user.id,
-      username: user.username || null,
-      first_name: user.first_name || null,
-      last_name: user.last_name || null,
-    });
-  } catch (e) {
-    console.log("[db.error] upsertUser:", e?.message || e);
-  }
   const list = await getSessionsList();
-  const rows = getUserSubsStmt.all(user.id);
-  const set = new Set(rows.map((r) => String(r.session_id)));
-  // subscribed first
+  let set = new Set();
+  if (user) {
+    try {
+      upsertUser.run({
+        id: user.id,
+        username: user.username || null,
+        first_name: user.first_name || null,
+        last_name: user.last_name || null,
+      });
+      const rows = getUserSubsStmt.all(user.id);
+      set = new Set(rows.map((r) => String(r.session_id)));
+    } catch (e) {
+      console.log("[db.error] upsertUser:", e?.message || e);
+    }
+  } else {
+    console.log("[api.warn] /api/sessions: INVALID_INIT_DATA (public list mode)");
+  }
   const payload = list
     .map((s) => ({
       id: s.id,
