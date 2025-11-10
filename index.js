@@ -393,7 +393,7 @@ const getHallData = async (id) => {
     const data = await fetchQtDataWithAlias(
       "https://api.quicktickets.ru/v1/hall/hall",
       id,
-      { useCookies: false }
+      { useCookies: true }
     );
     return data;
   } catch (e) {
