@@ -45,7 +45,7 @@ function getOrgAliasForSession(id) {
       } catch {}
     }
   } catch {}
-  return ORG_ALIASES[0];
+  return null;
 }
 
 function buildQtHeaders() {
@@ -108,8 +108,62 @@ async function requestQt(endpoint, id, alias) {
       });
       return retry.data;
     }
+    if (status === 404 && (type === "session_not_found" || type === "not_found")) {
+      const fixed = await resolveSessionLink(id);
+      if (fixed && fixed.alias && fixed.alias !== alias) {
+        const headers3 = { ...buildQtHeaders() };
+        const cookieHeader3 = getCookieHeader();
+        if (cookieHeader3) headers3["cookie"] = cookieHeader3;
+        const retry2 = await axios.get(endpoint, {
+          params: buildQtParams(id, fixed.alias),
+          headers: headers3,
+        });
+        return retry2.data;
+      }
+    }
     throw e;
   }
+}
+
+async function resolveSessionLink(id) {
+  try {
+    const row = getSessionByIdStmt.get(String(id));
+    if (row?.link) {
+      const u = new URL(row.link);
+      const alias = u.pathname.split("/").filter(Boolean)[0];
+      return { alias, url: row.link };
+    }
+  } catch {}
+  for (const alias of ORG_ALIASES) {
+    const url = `${BASE_URL}/${alias}/s${id}`;
+    try {
+      const r = await axios.get(url, {
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
+          "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
+        },
+        validateStatus: (s) => s >= 200 && s < 500,
+      });
+      if (r.status === 200) {
+        upsertSessionStmt.run({
+          id: String(id),
+          title: null,
+          date_text: null,
+          link: url,
+        });
+        return { alias, url };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function getOrResolveSessionLink(id) {
+  const row = getSessionByIdStmt.get(String(id));
+  if (row?.link) return row.link;
+  const r = await resolveSessionLink(id);
+  return r?.url || null;
 }
 
 let qtSession = { cookies: {}, ts: 0 };
@@ -216,35 +270,17 @@ async function qtLogin() {
 }
 
 async function fetchQtDataWithAlias(endpoint, id) {
-  const initial = getOrgAliasForSession(id);
-  const order = [initial, ...ORG_ALIASES.filter((a) => a !== initial)];
-  let lastErr = null;
-  for (const alias of order) {
-    try {
-      const data = await requestQt(endpoint, id, alias);
-      if (alias !== initial) {
-        try {
-          const prev = getSessionByIdStmt.get(String(id)) || {};
-          upsertSessionStmt.run({
-            id: String(id),
-            title: prev.title || null,
-            date_text: prev.date_text || null,
-            link: `${BASE_URL}/${alias}/s${id}`,
-          });
-        } catch {}
-      }
-      return data;
-    } catch (e) {
-      const type = e?.response?.data?.error?.type;
-      const status = e?.response?.status;
-      if (status === 400 && type === "invalid_token") {
-        lastErr = e;
-        continue;
-      }
-      throw e;
+  let alias = getOrgAliasForSession(id);
+  if (!alias) {
+    const fixed = await resolveSessionLink(id);
+    if (!fixed || !fixed.alias) {
+      const err = new Error("ORG_ALIAS_UNKNOWN");
+      err.code = "ORG_ALIAS_UNKNOWN";
+      throw err;
     }
+    alias = fixed.alias;
   }
-  throw lastErr || new Error("QT_ALIAS_RESOLVE_FAILED");
+  return await requestQt(endpoint, id, alias);
 }
 
 const getPlaces = async (id) => {
@@ -592,7 +628,7 @@ app.post("/api/subscriptions", async (req, res) => {
             id,
             title: null,
             date_text: null,
-            link: `${BASE_URL}/${ORG_ALIASES[0]}/s${id}`,
+            link: null,
           });
         }
       }
@@ -960,26 +996,32 @@ setInterval(async () => {
           prevGlobal === undefined || prevGlobal !== availableCount;
         if (!changedGlobally) continue;
 
-        const sessionInfo = getSessionByIdStmt.get(sid) || {
+        let sessionInfo = getSessionByIdStmt.get(sid) || {
           id: sid,
           title: "Сеанс",
           date_text: "",
-          link: `${BASE_URL}/${ORG_ALIASES[0]}/s${sid}`,
+          link: null,
         };
+        try {
+          const fixedLink = await getOrResolveSessionLink(sid);
+          if (fixedLink && sessionInfo.link !== fixedLink) {
+            upsertSessionStmt.run({
+              id: String(sid),
+              title: sessionInfo.title || null,
+              date_text: sessionInfo.date_text || null,
+              link: fixedLink,
+            });
+            sessionInfo = { ...sessionInfo, link: fixedLink };
+          }
+        } catch {}
 
         const subs = getSubscribersForSessionStmt.all(sid);
         // Build seat map to include row/seat details in notifications
         const seatIndex = buildSeatIndex(hallPlaces);
         const details = availablePlacesKeys
-          .map((pid) => ({ pid, info: seatIndex.get(pid) }))
-          .filter((x) => !!x.info)
-          .sort(
-            (a, b) =>
-              zoneOrder(a.info.zone) - zoneOrder(b.info.zone) ||
-              a.info.row - b.info.row ||
-              a.info.seat - b.info.seat
-          )
-          .map((x) => x.info);
+          .map((pid) => seatIndex.get(pid))
+          .filter(Boolean)
+          .sort((a, b) => a.row - b.row || a.seat - b.seat);
 
         let notified = 0;
         for (const row of subs) {
@@ -992,7 +1034,7 @@ setInterval(async () => {
             if (availableCount > 0) {
               const lines = details
                 .slice(0, 20)
-                .map((d) => `• ${d.zone} — ряд ${d.row}, место ${d.seat}`)
+                .map((d) => `• ряд ${d.row}, место ${d.seat}`)
                 .join("\n");
               const more =
                 details.length > 20
