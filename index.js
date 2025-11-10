@@ -148,6 +148,12 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   }
   try {
     const params = buildQtParams(id, alias);
+    // Для hall/hall избегаем user_id и Authorization: сервер может валидировать связку и отклонять
+    if (/\/hall\/hall(?:\?|$)/.test(endpoint)) {
+      delete params.user_id;
+      delete headers.authorization;
+      headers["api-id"] = "hall";
+    }
     const curl = buildCurl("GET", endpoint, params, headers, null, true);
     console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl}`);
     const response = await axios.get(endpoint, {
