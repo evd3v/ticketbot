@@ -23,7 +23,7 @@ RUN npm ci --omit=dev || npm install --omit=dev
 # Копируем остальной код с корректными правами
 USER root
 COPY --chown=pptruser:pptruser . .
-USER pptruser
+USER root
 
 # Expose the port the app runs on (internal, fronted by Nginx)
 EXPOSE 10010
