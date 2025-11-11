@@ -30,6 +30,7 @@ async function ensureGuestAuthForSessionById(id, alias) {
     if (guestAuthInflight.has(key)) return await guestAuthInflight.get(key);
     const p = (async () => {
       try {
+        console.log(`[auth.step] ensureGuestAuth start id=${id} alias=${alias}`);
         const cap = await collectGuestHeaders(String(alias), String(id), QT_USER_ID);
         if (cap?.setCookies && Array.isArray(cap.setCookies)) applySetCookie(cap.setCookies);
         if (cap?.authorization) {
@@ -62,8 +63,10 @@ async function ensureGuestCookiesForSessionById(id) {
       const url = await getOrResolveSessionLink(id);
       if (!url) return;
       try {
+        console.log(`[auth.step] ensureGuestCookies start id=${id}`);
         const setCookies = await collectGuestCookies(url);
         if (Array.isArray(setCookies) && setCookies.length) applySetCookie(setCookies);
+        console.log(`[auth.step] ensureGuestCookies ok id=${id}`);
       } catch (e) {
         console.log("[auth.warn] collectGuestCookies failed:", e?.message || e);
       }
@@ -269,13 +272,16 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   const useCookies = !!opts.useCookies;
   const didRetry = !!opts.didRetry;
   const headers = { ...buildQtHeaders(alias) };
+  console.log(`[qt.begin] ${endpoint} id=${id} alias=${alias} useCookies=${useCookies ? 'on' : 'off'}`);
   if (useCookies) {
+    console.log(`[qt.auth] ensure guest cookies/auth id=${id} alias=${alias}`);
     await ensureGuestCookiesForSessionById(id);
     await ensureGuestAuthForSessionById(id, alias);
     const cookieHeader = getCookieHeader();
     if (cookieHeader) headers["cookie"] = cookieHeader;
     const ah = getGuestAuthHeaderForAlias(alias);
     if (ah) headers["authorization"] = ah;
+    console.log(`[qt.headers] id=${id} alias=${alias} auth=${ah ? 'guest' : 'basic'} cookie=${cookieHeader ? 'on' : 'off'}`);
   }
   try {
     const params = buildQtParams(id, alias);
@@ -308,37 +314,41 @@ async function requestQt(endpoint, id, alias, opts = {}) {
           delete h2.cookie;
         }
         if (h2.cookie && v.dropQtAuth) h2.cookie = stripCookie(h2.cookie, ["qt__auth"]);
-        const curl2 = buildCurl("GET", endpoint, p2, h2, null, true);
-        console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl2}`);
+        const uid = (v.withUserId === false) ? "none" : (v.withUserId === "zero" ? 0 : p2.user_id);
+        const useAuth = (v.withAuth !== false) ? "on" : "off";
+        const useCookies = (Object.prototype.hasOwnProperty.call(v, "withCookies") && v.withCookies === false) ? "off" : "on";
+        const dropAuth = v.dropQtAuth ? "on" : "off";
+        console.log(`[qt.variant] hall ${i + 1}/${variants.length} id=${id} alias=${alias} user_id=${uid} auth=${useAuth} cookies=${useCookies} dropQtAuth=${dropAuth}`);
         try {
           const r2 = await axios.get(endpoint, { params: p2, headers: h2 });
           if (r2?.headers?.["set-cookie"]) applySetCookie(r2.headers["set-cookie"]);
+          console.log(`[qt.resp] hall ok variant=${i + 1} status=${r2.status}`);
           return r2.data;
         } catch (err2) {
           lastErr = err2;
           const t2 = err2?.response?.data?.error?.type;
           if (t2 === "invalid_token") {
             if (!firstInvalidErr) firstInvalidErr = err2;
-            console.log(`[http.warn] hall variant invalid_token, trying next variant`);
+            console.log(`[qt.warn] hall variant=${i + 1} invalid_token → next`);
             continue;
           }
-          console.log(`[http.warn] hall variant failed: ${t2 || err2?.response?.status}`);
+          console.log(`[qt.warn] hall variant=${i + 1} failed: ${t2 || err2?.response?.status}`);
           continue;
         }
       }
       if (firstInvalidErr) throw firstInvalidErr;
       if (lastErr) throw lastErr; // не делаем "generic" попытку для hall/hall
     }
-    const curl = buildCurl("GET", endpoint, params, headers, null, true);
-    console.log(`[http.debug] ${endpoint} id=${id} alias=${alias} curl: ${curl}`);
+    console.log(`[qt.req] ${endpoint} id=${id} alias=${alias} useCookies=${useCookies ? 'on' : 'off'}`);
     const response = await axios.get(endpoint, { params, headers });
     if (response?.headers?.["set-cookie"]) applySetCookie(response.headers["set-cookie"]);
+    console.log(`[qt.resp] ok ${endpoint} status=${response.status}`);
     return response.data;
   } catch (e) {
     const type = e?.response?.data?.error?.type;
     const status = e?.response?.status;
     if ((status === 401 || type === "authorization_header_is_required") && !didRetry) {
-      console.log(`[http.warn] ${endpoint} auth_required for id=${id}, alias=${alias} → refresh guest auth`);
+      console.log(`[qt.retry] ${endpoint} id=${id} alias=${alias} reason=auth_required → refresh guest auth`);
       try {
         if (useCookies) {
           await ensureGuestCookiesForSessionById(id);
@@ -371,13 +381,13 @@ async function qtBootstrap() {
   const cookie = getCookieHeader();
   if (cookie) headers["cookie"] = cookie;
   try {
-    const curl = buildCurl("GET", "https://quicktickets.ru/", null, headers, null, true);
-    console.log(`[http.debug] bootstrap curl: ${curl}`);
+    console.log(`[auth.step] bootstrap start GET /`);
     const r = await axios.get("https://quicktickets.ru/", {
       headers,
       validateStatus: (s) => s >= 200 && s < 400,
     });
     if (r?.headers?.["set-cookie"]) applySetCookie(r.headers["set-cookie"]);
+    console.log(`[auth.step] bootstrap ok status=${r.status}`);
   } catch {}
 }
 
@@ -523,15 +533,7 @@ async function qtLogin() {
   const cookie = getCookieHeader();
   if (cookie) headers["cookie"] = cookie;
   try {
-    const curl = buildCurl(
-      "POST",
-      "https://quicktickets.ru/user/login",
-      null,
-      headers,
-      body,
-      true
-    );
-    console.log(`[http.debug] login curl: ${curl}`);
+    console.log(`[auth.step] login start`);
     const res = await axios.post("https://quicktickets.ru/user/login", body, {
       headers,
       maxRedirects: 0,
