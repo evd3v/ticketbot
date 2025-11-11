@@ -1,5 +1,9 @@
-# Use the official Node.js image as the base image
-FROM node:20
+# Базовый образ с уже установленным Chromium и зависимостями Puppeteer
+FROM ghcr.io/puppeteer/puppeteer:22.15.0
+
+# Не скачивать Chromium заново при установке puppeteer
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 
 # Set the working directory inside the container
 WORKDIR /app
@@ -7,7 +11,7 @@ WORKDIR /app
 # Copy package.json and package-lock.json into the container
 COPY package.json package-lock.json ./
 
-# Install project dependencies (use npm install to allow updated package.json)
+# Установка зависимостей проекта
 RUN npm install --omit=dev
 
 # Copy the rest of the project files into the container

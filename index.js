@@ -337,9 +337,16 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   } catch (e) {
     const type = e?.response?.data?.error?.type;
     const status = e?.response?.status;
-    if (status === 400 && type === "invalid_token" && useCookies && !didRetry) {
-      console.log(`[http.warn] ${endpoint} invalid_token for id=${id}, alias=${alias} → relogin`);
-      await ensureQtSession(true);
+    if ((status === 401 || type === "authorization_header_is_required") && !didRetry) {
+      console.log(`[http.warn] ${endpoint} auth_required for id=${id}, alias=${alias} → refresh guest auth`);
+      try {
+        if (useCookies) {
+          await ensureGuestCookiesForSessionById(id);
+          await ensureGuestAuthForSessionById(id, alias);
+        } else {
+          await ensureQtSession(true);
+        }
+      } catch {}
       return await requestQt(endpoint, id, alias, { ...opts, didRetry: true });
     }
     if (status === 404 && (type === "session_not_found" || type === "not_found")) {
