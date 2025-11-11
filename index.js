@@ -22,8 +22,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const BASE_URL = "https://quicktickets.ru";
-const ORG_ALIAS = "orel-teatr-svobodnoe-prostranstvo";
-const ORG_URL = `${BASE_URL}/${ORG_ALIAS}`;
+const DEFAULT_ORG = "orel-teatr-svobodnoe-prostranstvo";
+const ORG_LIST = [
+  "orel-teatr-kukol",
+  "orel-teatr-turgeneva",
+  "orel-teatr-russkij-stil-bahtina",
+  "orel-teatr-svobodnoe-prostranstvo",
+];
+
+function parseSessionKey(key) {
+  const s = String(key);
+  const i = s.indexOf(":");
+  return i >= 0 ? { org: s.slice(0, i), id: s.slice(i + 1) } : { org: DEFAULT_ORG, id: s };
+}
+
+function linkFromSessionKey(key) {
+  const { org, id } = parseSessionKey(key);
+  return `${BASE_URL}/${org}/s${id}`;
+}
 
 let isOrderBooked = false;
 
@@ -57,8 +73,9 @@ const SESSIONS = [
   // {id: '2438', date: '09 октября 19:00', link: 'https://quicktickets.ru/orel-teatr-svobodnoe-prostranstvo/s2438'},
 ];
 
-const getPlaces = async (id) => {
+const getPlaces = async (key) => {
   try {
+    const { org, id } = parseSessionKey(key);
     const response = await axios.get(
       "https://api.quicktickets.ru/v1/anyticket/anyticket",
       {
@@ -66,7 +83,7 @@ const getPlaces = async (id) => {
           scope: "qt",
           panel: "site",
           user_id: "0",
-          organisation_alias: "orel-teatr-svobodnoe-prostranstvo",
+          organisation_alias: org,
           elem_type: "session",
           elem_id: id,
         },
@@ -100,8 +117,9 @@ const getPlaces = async (id) => {
   }
 };
 
-const getHallData = async (id) => {
+const getHallData = async (key) => {
   try {
+    const { org, id } = parseSessionKey(key);
     const response = await axios.get(
       "https://api.quicktickets.ru/v1/hall/hall",
       {
@@ -109,7 +127,7 @@ const getHallData = async (id) => {
           scope: "qt",
           panel: "site",
           user_id: "0",
-          organisation_alias: "orel-teatr-svobodnoe-prostranstvo",
+          organisation_alias: org,
           elem_type: "session",
           elem_id: id,
         },
@@ -433,37 +451,36 @@ let sessionsCache = { ts: 0, list: [] };
 const SESSIONS_TTL_MS = 60 * 1000; // 1 minute
 
 const scrapeSessions = async () => {
-  const url = ORG_URL;
-  const res = await axios.get(url, {
-    headers: {
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-      "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
-    },
-  });
-  const $ = cheerioLoad(res.data);
-  const found = new Map(); // id -> session
-
-  $(".elem[data-elem-type='event']").each((_, el) => {
-    const $el = $(el);
-    const title =
-      $el.find("h3 .underline").first().text().trim() ||
-      $el.find("h3").text().trim();
-    $el.find(".sessions .session-column a[href*='/s']").each((__, a) => {
-      const $a = $(a);
-      const href = $a.attr("href") || "";
-      const m = href.match(/\/s(\d+)/);
-      if (!m) return;
-      const id = m[1];
-      const dateText = $a.find(".underline").text().trim() || $a.text().trim();
-      const link = new URL(href, BASE_URL).toString();
-      if (!found.has(id)) {
-        found.set(id, { id, title, date: dateText, link });
-      }
+  const out = [];
+  for (const org of ORG_LIST) {
+    const url = `${BASE_URL}/${org}`;
+    const res = await axios.get(url, {
+      headers: {
+        "user-agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+        "accept-language": "ru-RU,ru;q=0.9,en;q=0.8",
+      },
     });
-  });
-
-  return [...found.values()];
+    const $ = cheerioLoad(res.data);
+    $(".elem[data-elem-type='event']").each((_, el) => {
+      const $el = $(el);
+      const title =
+        $el.find("h3 .underline").first().text().trim() ||
+        $el.find("h3").text().trim();
+      $el.find(".sessions .session-column a[href*='/s']").each((__, a) => {
+        const $a = $(a);
+        const href = $a.attr("href") || "";
+        const m = href.match(/\/s(\d+)/);
+        if (!m) return;
+        const num = m[1];
+        const key = `${org}:${num}`;
+        const dateText = $a.find(".underline").text().trim() || $a.text().trim();
+        const link = new URL(href, BASE_URL).toString();
+        out.push({ id: key, title, date: dateText, link, org });
+      });
+    });
+  }
+  return out;
 };
 
 const getSessionsList = async () => {
@@ -538,6 +555,7 @@ app.get("/api/sessions", async (req, res) => {
       title: s.title,
       date: s.date,
       link: s.link,
+      org: s.org || parseSessionKey(s.id).org,
       subscribed: set.has(String(s.id)),
     }))
     .sort((a, b) => Number(b.subscribed) - Number(a.subscribed));
@@ -577,7 +595,7 @@ app.post("/api/subscriptions", async (req, res) => {
             id,
             title: null,
             date_text: null,
-            link: `${ORG_URL}/s${id}`,
+            link: linkFromSessionKey(id),
           });
         }
       }
@@ -607,13 +625,12 @@ app.post("/api/subscriptions", async (req, res) => {
           const availableCount = availablePlacesKeys.length;
           upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
 
-          // Send immediate snapshot message to the user for newly added subscriptions
           try {
             const sessionInfo = getSessionByIdStmt.get(String(sid)) || {
               id: String(sid),
               title: "Сеанс",
               date_text: "",
-              link: `${ORG_URL}/s${sid}`,
+              link: linkFromSessionKey(sid),
             };
             const seatIndex = buildSeatIndex(hallPlaces);
             const details = availablePlacesKeys
@@ -626,7 +643,7 @@ app.post("/api/subscriptions", async (req, res) => {
                   a.info.seat - b.info.seat
               )
               .map((x) => x.info);
-            const title = `${sessionInfo.title}$${`{`}
+            const title = `${sessionInfo.title}${
               sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
             }`;
             const esc = (s = "") =>
@@ -1033,10 +1050,7 @@ setInterval(async () => {
         const changedGlobally =
           prevGlobal === undefined || prevGlobal !== availableCount;
 
-        // Subscribers list (used for forced per-user notifications)
         const subs = getSubscribersForSessionStmt.all(sid);
-
-        // Allow per-user forced notifications (last_count = -1) even if global count didn't change
         let forceForUsers = false;
         if (!changedGlobally) {
           for (const row of subs) {
@@ -1054,11 +1068,10 @@ setInterval(async () => {
           id: sid,
           title: "Сеанс",
           date_text: "",
-          link: `${ORG_URL}/s${sid}`,
+          link: linkFromSessionKey(sid),
         };
 
-        // subs already fetched above
-        // Build seat map to include row/seat details in notifications
+        
         const seatIndex = buildSeatIndex(hallPlaces);
         const details = availablePlacesKeys
           .map((pid) => ({ pid, info: seatIndex.get(pid) }))
