@@ -1,4 +1,6 @@
 import axios from "axios";
+import http from "http";
+import https from "https";
 import TeleBot from "telebot";
 import express from "express";
 import path from "path";
@@ -7,11 +9,40 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { load as cheerioLoad } from "cheerio";
+import { collectGuestCookies } from "./lib/qtGuest.js";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("[config.error] TELEGRAM_BOT_TOKEN is required");
   process.exit(1);
+}
+
+// Гостевая сессия: гарантировать наличие cookies (qt__auth и др.) для конкретного сеанса
+let guestInflight = new Map();
+async function ensureGuestCookiesForSessionById(id) {
+  try {
+    loadQtSession();
+    const hasAuth = qtSession && qtSession.cookies && qtSession.cookies.qt__auth;
+    if (hasAuth) return;
+    const key = String(id);
+    if (guestInflight.has(key)) return await guestInflight.get(key);
+    const p = (async () => {
+      const url = await getOrResolveSessionLink(id);
+      if (!url) return;
+      try {
+        const setCookies = await collectGuestCookies(url);
+        if (Array.isArray(setCookies) && setCookies.length) applySetCookie(setCookies);
+      } catch (e) {
+        console.log("[auth.warn] collectGuestCookies failed:", e?.message || e);
+      }
+    })();
+    guestInflight.set(key, p);
+    try {
+      await p;
+    } finally {
+      guestInflight.delete(key);
+    }
+  } catch {}
 }
 
 function parseAuthMap(s) {
@@ -62,6 +93,15 @@ const QT_LOGIN_PASSWORD = process.env.QT_LOGIN_PASSWORD || "";
 const QT_AUTH_B64 = process.env.QT_AUTH_B64 || "";
 const QT_AUTH_MAP = process.env.QT_AUTH_MAP || "";
 const DEFAULT_AUTH_B64 = "OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==";
+const HALL_CACHE_TTL_MS = Number(process.env.HALL_CACHE_TTL_MS || 30 * 60 * 1000);
+const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS || 5000);
+
+// Глобальные агенты для keep-alive и таймаутов HTTP(S)
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 16, timeout: 60_000 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 32, maxFreeSockets: 16, timeout: 60_000 });
+axios.defaults.httpAgent = httpAgent;
+axios.defaults.httpsAgent = httpsAgent;
+axios.defaults.timeout = Number(process.env.HTTP_TIMEOUT_MS || 7000);
 
 function shq(s) {
   const str = String(s ?? "");
@@ -198,7 +238,7 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   const didRetry = !!opts.didRetry;
   const headers = { ...buildQtHeaders(alias) };
   if (useCookies) {
-    await ensureQtSession(false);
+    await ensureGuestCookiesForSessionById(id);
     const cookieHeader = getCookieHeader();
     if (cookieHeader) headers["cookie"] = cookieHeader;
   }
@@ -208,20 +248,14 @@ async function requestQt(endpoint, id, alias, opts = {}) {
     if (isHall) {
       const base = { ...params };
       let lastErr = null;
+      let firstInvalidErr = null;
       const variants = [
-        // Сначала максимально ближе к рабочему кейсу: без cookies
-        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  withCookies: false },
-        // Затем повторяем браузерный профиль, затем постепенно упрощаем
-        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: false },
-        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
-        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
-        { apiId: "hall",          panel: "hall", scope: base.scope, withUserId: true,  withAuth: true,  dropQtAuth: true  },
-        { apiId: "hall",          panel: "hall", scope: "hall",  withUserId: true,  withAuth: true,  dropQtAuth: true  },
-        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: false, withAuth: true,  dropQtAuth: true  },
-        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: false, withAuth: false, dropQtAuth: true  },
-        { apiId: "hall",          panel: "hall", scope: base.scope, withUserId: false, withAuth: true,  dropQtAuth: true  },
-        { apiId: "hall",          panel: "hall", scope: "hall",  withUserId: false, withAuth: true,  dropQtAuth: true  },
-        { apiId: "quick-tickets", panel: "hall", scope: base.scope, withUserId: "zero", withAuth: true, dropQtAuth: true },
+        // Браузерный профиль с cookies и Authorization (требуется API)
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true, withAuth: true, dropQtAuth: false },
+        // На случай конфликтов с qt__auth в cookie
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true, withAuth: true, dropQtAuth: true  },
+        // Без cookies (как крайняя попытка)
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true, withAuth: true, withCookies: false },
       ];
       for (let i = 0; i < variants.length; i++) {
         const v = variants[i];
@@ -245,6 +279,7 @@ async function requestQt(endpoint, id, alias, opts = {}) {
           lastErr = err2;
           const t2 = err2?.response?.data?.error?.type;
           if (t2 === "invalid_token") {
+            if (!firstInvalidErr) firstInvalidErr = err2;
             console.log(`[http.warn] hall variant invalid_token, trying next variant`);
             continue;
           }
@@ -252,6 +287,7 @@ async function requestQt(endpoint, id, alias, opts = {}) {
           continue;
         }
       }
+      if (firstInvalidErr) throw firstInvalidErr;
       if (lastErr) throw lastErr; // не делаем "generic" попытку для hall/hall
     }
     const curl = buildCurl("GET", endpoint, params, headers, null, true);
@@ -341,6 +377,8 @@ async function getOrResolveSessionLink(id) {
 }
 
 let qtSession = { cookies: {}, ts: 0 };
+
+const hallCache = new Map();
 
 function getSessionPath() {
   return path.join(__dirname, "data", "qt_session.json");
@@ -492,12 +530,17 @@ const getPlaces = async (id) => {
 };
 
 const getHallData = async (id) => {
+  const key = String(id);
+  const now = Date.now();
+  const cached = hallCache.get(key);
+  if (cached && now - cached.ts < HALL_CACHE_TTL_MS) return cached.data;
   try {
     const data = await fetchQtDataWithAlias(
       "https://api.quicktickets.ru/v1/hall/hall",
       id,
       { useCookies: true }
     );
+    hallCache.set(key, { ts: Date.now(), data });
     return data;
   } catch (e) {
     console.log("[http.error] getHallData:", e?.response?.data || e?.message || e);
@@ -1301,7 +1344,7 @@ setInterval(async () => {
   } catch (e) {
     console.log("[poll.error] loop:", e?.message || e);
   }
-}, 5000);
+}, POLL_INTERVAL_MS);
 
 // bot.sendMessage(ADMIN_CHAT_ID, "Опрос запущен!");
 
