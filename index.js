@@ -349,10 +349,13 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   } catch (e) {
     const type = e?.response?.data?.error?.type;
     const status = e?.response?.status;
-    if ((status === 401 || type === "authorization_header_is_required") && !didRetry) {
-      console.log(`[qt.retry] ${endpoint} id=${id} alias=${alias} reason=auth_required → refresh guest auth`);
+    if ((status === 401 || type === "authorization_header_is_required" || type === "invalid_token") && !didRetry) {
+      const reason = type || (status === 401 ? "401" : "auth_required");
+      console.log(`[qt.retry] ${endpoint} id=${id} alias=${alias} reason=${reason} → refresh guest auth`);
       try {
         if (useCookies) {
+          // Сбросить кэш авторизационного заголовка для данного alias и обновить cookies/headers
+          try { guestAuthByAlias.delete(String(alias)); } catch {}
           await ensureGuestCookiesForSessionById(id);
           await ensureGuestAuthForSessionById(id, alias);
         } else {
