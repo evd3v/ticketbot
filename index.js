@@ -9,7 +9,7 @@ import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { load as cheerioLoad } from "cheerio";
 
-const TELEGRAM_BOT_TOKEN = "7779682896:AAGRVxcJEjJyLhEFU4qk3PCYSbnpP3pZVyk";
+const TELEGRAM_BOT_TOKEN = "7779682896:AAH6P-49X377zxJppqeNWr3cIhR5kDECrIc";
 
 const ADMIN_CHAT_ID = 875484579;
 const ANGEL_CHAT_ID = 384686618;
@@ -601,7 +601,9 @@ app.post("/api/subscriptions", async (req, res) => {
           } = await getHallData(sid);
           const placesKeys = Object.keys(places);
           const hallPlacesKeys = Object.keys(hallPlaces);
-          const availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
+          const availablePlacesKeys = hallPlacesKeys.filter(
+            (key) => !placesKeys.includes(key)
+          );
           const availableCount = availablePlacesKeys.length;
           upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
         } catch (e) {
@@ -611,7 +613,9 @@ app.post("/api/subscriptions", async (req, res) => {
     }
     if (removed.length) {
       try {
-        const delStmt = db.prepare("DELETE FROM notify_state WHERE user_id = ? AND session_id = ?");
+        const delStmt = db.prepare(
+          "DELETE FROM notify_state WHERE user_id = ? AND session_id = ?"
+        );
         for (const sid of removed) delStmt.run(user.id, String(sid));
       } catch {}
     }
@@ -691,7 +695,10 @@ function safeSendMessage(chatId, text, options = {}) {
   return bot
     .sendMessage(chatId, text, options)
     .catch((e) =>
-      console.log("[bot.error] sendMessage:", e?.response?.data || e?.message || e)
+      console.log(
+        "[bot.error] sendMessage:",
+        e?.response?.data || e?.message || e
+      )
     );
 }
 
@@ -749,18 +756,33 @@ bot.on("/subscription", (msg) => {
   try {
     const rows = getUserSubsStmt.all(chatId);
     if (!rows.length) {
-      return safeSendMessage(chatId, "Пока нет активных подписок.", { replyMarkup: replyUnsubKeyboard() });
+      return safeSendMessage(chatId, "Пока нет активных подписок.", {
+        replyMarkup: replyUnsubKeyboard(),
+      });
     }
     const items = rows
       .map((r) => getSessionByIdStmt.get(String(r.session_id)))
       .filter(Boolean)
-      .sort((a, b) => dateSortKeyRU(a.date_text || a.date || "") - dateSortKeyRU(b.date_text || b.date || ""));
-    const lines = items.map((s) => `• <b>${(s.title || "Сеанс").replace(/</g, '&lt;').replace(/>/g, '&gt;')}</b> — ${(s.date_text || s.date || "").replace(/</g, '&lt;').replace(/>/g, '&gt;')}`);
-    const text = [
-      `<b>Ваши подписки (${lines.length})</b>`,
-      ...lines,
-    ].join("\n");
-    return safeSendMessage(chatId, text, { parseMode: "HTML", replyMarkup: replyUnsubKeyboard() });
+      .sort(
+        (a, b) =>
+          dateSortKeyRU(a.date_text || a.date || "") -
+          dateSortKeyRU(b.date_text || b.date || "")
+      );
+    const lines = items.map(
+      (s) =>
+        `• <b>${(s.title || "Сеанс")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")}</b> — ${(s.date_text || s.date || "")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")}`
+    );
+    const text = [`<b>Ваши подписки (${lines.length})</b>`, ...lines].join(
+      "\n"
+    );
+    return safeSendMessage(chatId, text, {
+      parseMode: "HTML",
+      replyMarkup: replyUnsubKeyboard(),
+    });
   } catch (e) {
     console.log("[cmd.error] /subscription:", e?.message || e);
     return safeSendMessage(chatId, "Не удалось получить список подписок.");
@@ -771,21 +793,30 @@ bot.on("/unsubscribe_all", (msg) => {
   const chatId = msg.from?.id || msg.chat?.id;
   if (!chatId) return;
   const ok = clearAllSubscriptions(chatId);
-  safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+  safeSendMessage(
+    chatId,
+    ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже."
+  );
 });
 
 bot.on("/unsuball", (msg) => {
   const chatId = msg.from?.id || msg.chat?.id;
   if (!chatId) return;
   const ok = clearAllSubscriptions(chatId);
-  safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+  safeSendMessage(
+    chatId,
+    ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже."
+  );
 });
 
 bot.on("/unsub", (msg) => {
   const chatId = msg.from?.id || msg.chat?.id;
   if (!chatId) return;
   const ok = clearAllSubscriptions(chatId);
-  safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+  safeSendMessage(
+    chatId,
+    ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже."
+  );
 });
 
 bot.on("text", (msg) => {
@@ -802,11 +833,20 @@ bot.on("text", (msg) => {
     }
     if (isCmd(text, "manage")) {
       console.log(`[bot.info] Received /manage from ${chatId}`);
-      return safeSendMessage(chatId, `Чтобы открыть мини‑приложение: откройте профиль бота (нажмите на имя бота вверху чата) → раздел «Приложение»/«Apps».`, { parseMode: "HTML" });
+      return safeSendMessage(
+        chatId,
+        `Чтобы открыть мини‑приложение: откройте профиль бота (нажмите на имя бота вверху чата) → раздел «Приложение»/«Apps».`,
+        { parseMode: "HTML" }
+      );
     }
     if (/^отписаться от всех$/i.test(text.trim())) {
       const ok = clearAllSubscriptions(chatId);
-      return safeSendMessage(chatId, ok ? "Все подписки сняты." : "Не удалось снять подписки, попробуйте позже.");
+      return safeSendMessage(
+        chatId,
+        ok
+          ? "Все подписки сняты."
+          : "Не удалось снять подписки, попробуйте позже."
+      );
     }
   } catch (e) {
     console.log("[bot.error] text handler:", e?.message || e);
