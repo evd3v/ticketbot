@@ -606,6 +606,55 @@ app.post("/api/subscriptions", async (req, res) => {
           );
           const availableCount = availablePlacesKeys.length;
           upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
+
+          // Send immediate snapshot message to the user for newly added subscriptions
+          try {
+            const sessionInfo = getSessionByIdStmt.get(String(sid)) || {
+              id: String(sid),
+              title: "Сеанс",
+              date_text: "",
+              link: `${ORG_URL}/s${sid}`,
+            };
+            const seatIndex = buildSeatIndex(hallPlaces);
+            const details = availablePlacesKeys
+              .map((pid) => ({ pid, info: seatIndex.get(pid) }))
+              .filter((x) => !!x.info)
+              .sort(
+                (a, b) =>
+                  zoneOrder(a.info.zone) - zoneOrder(b.info.zone) ||
+                  a.info.row - b.info.row ||
+                  a.info.seat - b.info.seat
+              )
+              .map((x) => x.info);
+            const title = `${sessionInfo.title}$${`{`}
+              sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
+            }`;
+            const esc = (s = "") =>
+              String(s)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+            if (availableCount > 0) {
+              const lines = details
+                .slice(0, 20)
+                .map((d) => `• ${d.zone} — ряд ${d.row}, место ${d.seat}`)
+                .join("\n");
+              const more =
+                details.length > 20
+                  ? `\n… и еще ${details.length - 20} мест`
+                  : "";
+              const msg = `<b>🎟️ Доступно ${availableCount} мест</b>\n<a href="${
+                sessionInfo.link
+              }">${esc(title)}</a>\n${esc(lines)}${more}`;
+              await safeSendMessage(user.id, msg, { parseMode: "HTML" });
+            } else {
+              const msg = `❌ Билеты на сеанс <b>${esc(title)}</b> закончились.`;
+              await safeSendMessage(user.id, msg, { parseMode: "HTML" });
+            }
+          } catch (e) {
+            console.log("[notify.error] immediate:", e?.message || e);
+          }
         } catch (e) {
           // ignore snapshot errors
         }
@@ -983,7 +1032,23 @@ setInterval(async () => {
         const prevGlobal = lastAvailability.get(sid);
         const changedGlobally =
           prevGlobal === undefined || prevGlobal !== availableCount;
-        if (!changedGlobally) continue;
+
+        // Subscribers list (used for forced per-user notifications)
+        const subs = getSubscribersForSessionStmt.all(sid);
+
+        // Allow per-user forced notifications (last_count = -1) even if global count didn't change
+        let forceForUsers = false;
+        if (!changedGlobally) {
+          for (const row of subs) {
+            const probe = getUserNotifyStateStmt.get(Number(row.user_id), sid);
+            const lc = probe ? probe.last_count : null;
+            if (lc === -1) {
+              forceForUsers = true;
+              break;
+            }
+          }
+        }
+        if (!changedGlobally && !forceForUsers) continue;
 
         const sessionInfo = getSessionByIdStmt.get(sid) || {
           id: sid,
@@ -992,7 +1057,7 @@ setInterval(async () => {
           link: `${ORG_URL}/s${sid}`,
         };
 
-        const subs = getSubscribersForSessionStmt.all(sid);
+        // subs already fetched above
         // Build seat map to include row/seat details in notifications
         const seatIndex = buildSeatIndex(hallPlaces);
         const details = availablePlacesKeys
