@@ -3,19 +3,24 @@ FROM ghcr.io/puppeteer/puppeteer:22.15.0
 
 # Не скачивать Chromium заново при установке puppeteer
 ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
+ENV PUPPETEER_CACHE_DIR=/home/pptruser/.cache/puppeteer
 
-# Set the working directory inside the container
+USER root
+
+# Рабочая директория
 WORKDIR /app
 
-# Copy package.json and package-lock.json into the container
-COPY package.json package-lock.json ./
+# Сначала только манифесты, с правильными правами для pptruser
+COPY --chown=pptruser:pptruser package.json package-lock.json ./
 
-# Установка зависимостей проекта
-RUN npm install --omit=dev
+# Установка зависимостей от имени pptruser (без правовых конфликтов)
+USER pptruser
+RUN npm ci --omit=dev || npm install --omit=dev
 
-# Copy the rest of the project files into the container
-COPY . .
+# Копируем остальной код с корректными правами
+USER root
+COPY --chown=pptruser:pptruser . .
+USER pptruser
 
 # Expose the port the app runs on (internal, fronted by Nginx)
 EXPOSE 10010
