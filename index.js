@@ -36,6 +36,8 @@ async function ensureGuestAuthForSessionById(id, alias) {
         if (cap?.authorization) {
           guestAuthByAlias.set(key, String(cap.authorization));
           console.log(`[auth.info] captured guest authorization for alias=${alias}`);
+        } else {
+          console.log(`[auth.warn] guest authorization not captured for alias=${alias}`);
         }
       } catch (e) {
         console.log("[auth.warn] collectGuestHeaders failed:", e?.message || e);
@@ -944,7 +946,7 @@ app.post("/api/subscriptions", async (req, res) => {
       for (const id of ids) insertUserSubStmt.run(userId, id);
     });
     tx(user.id, norm);
-    // update notify_state silently (no user messages)
+    // update notify_state и отправить мгновенное уведомление пользователю
     if (added.length) {
       for (const sid of added) {
         try {
@@ -958,6 +960,29 @@ app.post("/api/subscriptions", async (req, res) => {
           const hallPlacesKeys = Object.keys(hallPlaces);
           const availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
           const availableCount = availablePlacesKeys.length;
+          let sessionInfo = getSessionByIdStmt.get(String(sid)) || {
+            id: String(sid),
+            title: "Сеанс",
+            date_text: "",
+            link: await getOrResolveSessionLink(String(sid)),
+          };
+          const title = `${sessionInfo.title}${sessionInfo.date_text ? " — " + sessionInfo.date_text : ""}`;
+          const esc = (s = "") => String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+          if (availableCount > 0) {
+            const text = `<b>Сейчас доступно ${availableCount} мест</b>\n<a href="${sessionInfo.link}">${esc(title)}</a>`;
+            console.log(`[notify.init] user=${user.id} sid=${sid} available=${availableCount}`);
+            await safeSendMessage(user.id, text, { parseMode: "HTML" });
+          } else {
+            const text = `Сейчас билетов на сеанс <b>${esc(title)}</b> нет.`;
+            console.log(`[notify.init] user=${user.id} sid=${sid} available=0`);
+            await safeSendMessage(user.id, text, { parseMode: "HTML" });
+          }
+          upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
+        } catch (e) {
           try {
             let sessionInfo = getSessionByIdStmt.get(String(sid)) || {
               id: String(sid),
@@ -971,17 +996,13 @@ app.post("/api/subscriptions", async (req, res) => {
               .replace(/</g, "&lt;")
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;");
-            if (availableCount > 0) {
-              const text = `<b>Сейчас доступно ${availableCount} мест</b>\n<a href="${sessionInfo.link}">${esc(title)}</a>`;
-              await bot.sendMessage(user.id, text, { parseMode: "HTML" });
-            } else {
-              const text = `Сейчас билетов на сеанс <b>${esc(title)}</b> нет.`;
-              await bot.sendMessage(user.id, text, { parseMode: "HTML" });
-            }
-          } catch (e) {}
-          upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
-        } catch (e) {
-          // ignore snapshot errors
+            console.log(`[notify.init.warn] sid=${sid} failed to snapshot:`, e?.message || e);
+            await safeSendMessage(
+              user.id,
+              `Подписка сохранена. Не удалось проверить текущую доступность сейчас для <b>${esc(title)}</b>. Будут приходить уведомления при изменениях.`,
+              { parseMode: "HTML" }
+            );
+          } catch {}
         }
       }
     }
