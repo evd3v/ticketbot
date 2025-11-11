@@ -140,7 +140,7 @@ function renderSessions(sessions) {
         const item = document.createElement('label');
         item.className = 'item';
         item.innerHTML = `
-          <input type="checkbox" data-id="${s.id}" ${s.subscribed ? 'checked' : ''} />
+          <input type="checkbox" data-id="${s.id}" data-alias="${orgAliasOf(s.link)}" data-key="${orgAliasOf(s.link)}:${s.id}" ${s.subscribed ? 'checked' : ''} />
           <div class="data">
             <div class="title">${(s.title || 'Спектакль')} — ${s.date}</div>
             <div class="link"><a href="${s.link}" target="_blank" rel="noreferrer">${s.link}</a></div>
@@ -167,11 +167,10 @@ function renderSessions(sessions) {
       <span class="x" title="Удалить">✕</span>
     `;
     chip.querySelector('.x').addEventListener('click', () => {
-      // update local state
-      const target = state.sessions.find(it => it.id === s.id);
+      const alias = orgAliasOf(s.link);
+      const target = state.sessions.find(it => it.id === s.id && orgAliasOf(it.link) === alias);
       if (target) target.subscribed = false;
-      // uncheck in the list and refresh UI
-      const cb = listEl.querySelector(`input[data-id="${s.id}"]`);
+      const cb = listEl.querySelector(`input[data-key="${alias}:${s.id}"]`);
       if (cb) cb.checked = false;
       renderSessions(state.sessions);
       queueSave();
@@ -215,7 +214,7 @@ async function save() {
   try {
     setStatus('Сохранение...', 'info');
     const initData = tg?.initData || new URLSearchParams(location.search).get('initData') || '';
-    const checked = state.sessions.filter(s => s.subscribed).map(s => s.id);
+    const checked = Array.from(new Set(state.sessions.filter(s => s.subscribed).map(s => s.id)));
     const res = await fetch(`/api/subscriptions?initData=${encodeURIComponent(initData)}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -237,9 +236,10 @@ const queueSave = debounce(save, 600);
 // Delegate checkbox changes for auto-save
 listEl.addEventListener('change', (e) => {
   const t = e.target;
-  if (t && t.matches('input[type="checkbox"][data-id]')) {
+  if (t && t.matches('input[type="checkbox"][data-key]')) {
     const id = t.dataset.id;
-    const target = state.sessions.find(s => s.id === id);
+    const alias = t.dataset.alias || '';
+    const target = state.sessions.find(s => s.id === id && orgAliasOf(s.link) === alias);
     if (target) {
       target.subscribed = t.checked;
       renderSessions(state.sessions);
