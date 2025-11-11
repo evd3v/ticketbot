@@ -10,6 +10,9 @@ USER root
 # Рабочая директория
 WORKDIR /app
 
+# Подготовить права доступа для pptruser на /app и node_modules
+RUN mkdir -p /app/node_modules && chown -R pptruser:pptruser /app
+
 # Сначала только манифесты, с правильными правами для pptruser
 COPY --chown=pptruser:pptruser package.json package-lock.json ./
 
