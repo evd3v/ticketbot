@@ -9,12 +9,44 @@ import crypto from "crypto";
 import { fileURLToPath } from "url";
 import Database from "better-sqlite3";
 import { load as cheerioLoad } from "cheerio";
-import { collectGuestCookies } from "./lib/qtGuest.js";
+import { collectGuestCookies, collectGuestHeaders } from "./lib/qtGuest.js";
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 if (!TELEGRAM_BOT_TOKEN) {
   console.error("[config.error] TELEGRAM_BOT_TOKEN is required");
   process.exit(1);
+}
+
+let guestAuthInflight = new Map();
+const guestAuthByAlias = new Map();
+function getGuestAuthHeaderForAlias(alias) {
+  return guestAuthByAlias.get(String(alias)) || "";
+}
+async function ensureGuestAuthForSessionById(id, alias) {
+  try {
+    const key = String(alias || "");
+    if (!key) return;
+    if (guestAuthByAlias.has(key)) return;
+    if (guestAuthInflight.has(key)) return await guestAuthInflight.get(key);
+    const p = (async () => {
+      try {
+        const cap = await collectGuestHeaders(String(alias), String(id), QT_USER_ID);
+        if (cap?.setCookies && Array.isArray(cap.setCookies)) applySetCookie(cap.setCookies);
+        if (cap?.authorization) {
+          guestAuthByAlias.set(key, String(cap.authorization));
+          console.log(`[auth.info] captured guest authorization for alias=${alias}`);
+        }
+      } catch (e) {
+        console.log("[auth.warn] collectGuestHeaders failed:", e?.message || e);
+      }
+    })();
+    guestAuthInflight.set(key, p);
+    try {
+      await p;
+    } finally {
+      guestAuthInflight.delete(key);
+    }
+  } catch {}
 }
 
 // Гостевая сессия: гарантировать наличие cookies (qt__auth и др.) для конкретного сеанса
@@ -239,8 +271,11 @@ async function requestQt(endpoint, id, alias, opts = {}) {
   const headers = { ...buildQtHeaders(alias) };
   if (useCookies) {
     await ensureGuestCookiesForSessionById(id);
+    await ensureGuestAuthForSessionById(id, alias);
     const cookieHeader = getCookieHeader();
     if (cookieHeader) headers["cookie"] = cookieHeader;
+    const ah = getGuestAuthHeaderForAlias(alias);
+    if (ah) headers["authorization"] = ah;
   }
   try {
     const params = buildQtParams(id, alias);
@@ -256,6 +291,10 @@ async function requestQt(endpoint, id, alias, opts = {}) {
         { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true, withAuth: true, dropQtAuth: true  },
         // Без cookies (как крайняя попытка)
         { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: true, withAuth: true, withCookies: false },
+        // Фоллбэки по user_id: убрать параметр вовсе
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: false, withAuth: true, dropQtAuth: false },
+        // user_id=0 (иногда сервер принимает как гостя)
+        { apiId: "quick-tickets", panel: "site", scope: base.scope, withUserId: "zero", withAuth: true, dropQtAuth: true },
       ];
       for (let i = 0; i < variants.length; i++) {
         const v = variants[i];
