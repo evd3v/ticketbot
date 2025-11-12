@@ -30,10 +30,23 @@ const ORG_LIST = [
   "orel-teatr-svobodnoe-prostranstvo",
 ];
 
+const ORG_AUTH_ENV = (() => {
+  try {
+    return JSON.parse(process.env.ORG_AUTH_JSON || "{}");
+  } catch {
+    return {};
+  }
+})();
 const ORG_AUTH = {
   "orel-teatr-svobodnoe-prostranstvo":
-    "Basic NTA3MDRlY2RhOGViMzc3M2UzMjBjY2NkZjU0ZDM0NWQyNTIxZmMyNjhhNGM3OGM2MDJkM2ZhNWRmMmMyMDAwNA==",
+    "Basic YjBkNDUxMDBmNGYxMzY2Y2E0OTVmMDZhMzFkMDI4Yzc0NDUxNzQ1MjZmMzM1MDVmYTA0ZjQ1OGRjZjc2ZmExZQ==",
+  "orel-teatr-kukol":
+    "Basic ZDIyMGJjNDlhOWM5NzM0YzRiNzM4NTdkOGJjZTRjNjMzNmYyNmQyNDE4N2ZkZmU0MzMwNzliZjUxODZkNjQwOQ==",
+  "orel-teatr-turgeneva":
+    "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
+  ...ORG_AUTH_ENV,
 };
+const QT_USER_ID = process.env.QT_USER_ID || "1190633";
 
 function parseSessionKey(key) {
   const s = String(key);
@@ -87,7 +100,7 @@ const getPlaces = async (key) => {
         params: {
           scope: "qt",
           panel: "site",
-          user_id: "0",
+          user_id: QT_USER_ID,
           organisation_alias: org,
           elem_type: "session",
           elem_id: id,
@@ -96,7 +109,7 @@ const getPlaces = async (key) => {
           accept: "application/json, text/plain, */*",
           "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
           "api-id": "quick-tickets",
-          authorization: ORG_AUTH[DEFAULT_ORG],
+          ...(ORG_AUTH[org] ? { authorization: ORG_AUTH[org] } : {}),
           "cache-control": "no-cache",
           origin: "https://hall.quicktickets.ru",
           pragma: "no-cache",
