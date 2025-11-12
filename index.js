@@ -765,27 +765,41 @@ app.post("/api/subscriptions", async (req, res) => {
       for (const sid of added) {
         try {
           const gp = await getPlaces(sid);
+          const hd = await getHallData(sid);
           const gpPlaces = gp?.response?.places;
-          if (!gpPlaces || typeof gpPlaces !== "object") {
+          const hdPlaces = hd?.response?.places;
+          const entrance = hd?.response?.entranceplaces;
+          const hasEntrance =
+            entrance && typeof entrance === "object" && Object.keys(entrance).length > 0;
+          if ((!gpPlaces || typeof gpPlaces !== "object") && !hasEntrance) {
             const { org, id } = parseSessionKey(sid);
             console.log(`[poll.warn] snapshot ${org}:${id} places missing`);
             continue;
           }
-          const hd = await getHallData(sid);
-          const hdPlaces = hd?.response?.places;
-          if (!hdPlaces || typeof hdPlaces !== "object") {
+          if ((!hdPlaces || typeof hdPlaces !== "object") && !hasEntrance) {
             const { org, id } = parseSessionKey(sid);
             console.log(`[poll.warn] snapshot ${org}:${id} hall missing`);
             continue;
           }
-          const places = gpPlaces;
-          const hallPlaces = hdPlaces;
-          const placesKeys = Object.keys(places);
-          const hallPlacesKeys = Object.keys(hallPlaces);
-          const availablePlacesKeys = hallPlacesKeys.filter(
-            (key) => !placesKeys.includes(key)
-          );
-          const availableCount = availablePlacesKeys.length;
+
+          let availableCount = 0;
+          let hallPlaces = hdPlaces;
+          let availablePlacesKeys = [];
+          if (hasEntrance) {
+            availableCount = Object.values(entrance).reduce(
+              (n, x) => n + (Number(x?.count) || 0),
+              0
+            );
+            hallPlaces = {};
+            availablePlacesKeys = [];
+          } else {
+            const places = gpPlaces;
+            const placesKeys = Object.keys(places);
+            const hallPlacesKeys = Object.keys(hallPlaces);
+            availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
+            availableCount = availablePlacesKeys.length;
+          }
+
           upsertNotifyStateStmt.run(user.id, String(sid), availableCount);
 
           try {
@@ -795,17 +809,20 @@ app.post("/api/subscriptions", async (req, res) => {
               date_text: "",
               link: linkFromSessionKey(sid),
             };
-            const seatIndex = buildSeatIndex(hallPlaces);
-            const details = availablePlacesKeys
-              .map((pid) => ({ pid, info: seatIndex.get(pid) }))
-              .filter((x) => !!x.info)
-              .sort(
-                (a, b) =>
-                  zoneOrder(a.info.zone) - zoneOrder(b.info.zone) ||
-                  a.info.row - b.info.row ||
-                  a.info.seat - b.info.seat
-              )
-              .map((x) => x.info);
+            let details = [];
+            if (!hasEntrance) {
+              const seatIndex = buildSeatIndex(hallPlaces);
+              details = availablePlacesKeys
+                .map((pid) => ({ pid, info: seatIndex.get(pid) }))
+                .filter((x) => !!x.info)
+                .sort(
+                  (a, b) =>
+                    zoneOrder(a.info.zone) - zoneOrder(b.info.zone) ||
+                    a.info.row - b.info.row ||
+                    a.info.seat - b.info.seat
+                )
+                .map((x) => x.info);
+            }
             const title = `${sessionInfo.title}${
               sessionInfo.date_text ? " — " + sessionInfo.date_text : ""
             }`;
@@ -1197,27 +1214,40 @@ setInterval(async () => {
     for (const sid of sessionIds) {
       try {
         const gp = await getPlaces(sid);
+        const hd = await getHallData(sid);
         const gpPlaces = gp?.response?.places;
-        if (!gpPlaces || typeof gpPlaces !== "object") {
+        const hdPlaces = hd?.response?.places;
+        const entrance = hd?.response?.entranceplaces;
+        const hasEntrance =
+          entrance && typeof entrance === "object" && Object.keys(entrance).length > 0;
+        if ((!gpPlaces || typeof gpPlaces !== "object") && !hasEntrance) {
           const { org, id } = parseSessionKey(sid);
           console.log(`[poll.warn] session ${org}:${id} places missing`);
           continue;
         }
-        const hd = await getHallData(sid);
-        const hdPlaces = hd?.response?.places;
-        if (!hdPlaces || typeof hdPlaces !== "object") {
+        if ((!hdPlaces || typeof hdPlaces !== "object") && !hasEntrance) {
           const { org, id } = parseSessionKey(sid);
           console.log(`[poll.warn] session ${org}:${id} hall missing`);
           continue;
         }
-        const places = gpPlaces;
-        const hallPlaces = hdPlaces;
-        const placesKeys = Object.keys(places);
-        const hallPlacesKeys = Object.keys(hallPlaces);
-        const availablePlacesKeys = hallPlacesKeys.filter(
-          (key) => !placesKeys.includes(key)
-        );
-        const availableCount = availablePlacesKeys.length;
+
+        let availablePlacesKeys = [];
+        let availableCount = 0;
+        let hallPlaces = hdPlaces;
+        if (hasEntrance) {
+          availableCount = Object.values(entrance).reduce(
+            (n, x) => n + (Number(x?.count) || 0),
+            0
+          );
+          hallPlaces = {};
+          availablePlacesKeys = [];
+        } else {
+          const places = gpPlaces;
+          const placesKeys = Object.keys(places);
+          const hallPlacesKeys = Object.keys(hallPlaces);
+          availablePlacesKeys = hallPlacesKeys.filter((key) => !placesKeys.includes(key));
+          availableCount = availablePlacesKeys.length;
+        }
 
         const prevGlobal = lastAvailability.get(sid);
         const changedGlobally =
