@@ -30,6 +30,11 @@ const ORG_LIST = [
   "orel-teatr-svobodnoe-prostranstvo",
 ];
 
+const ORG_AUTH = {
+  "orel-teatr-svobodnoe-prostranstvo":
+    "Basic NTA3MDRlY2RhOGViMzc3M2UzMjBjY2NkZjU0ZDM0NWQyNTIxZmMyNjhhNGM3OGM2MDJkM2ZhNWRmMmMyMDAwNA==",
+};
+
 function parseSessionKey(key) {
   const s = String(key);
   const i = s.indexOf(":");
@@ -91,8 +96,7 @@ const getPlaces = async (key) => {
           accept: "application/json, text/plain, */*",
           "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
           "api-id": "quick-tickets",
-          authorization:
-            "Basic NTA3MDRlY2RhOGViMzc3M2UzMjBjY2NkZjU0ZDM0NWQyNTIxZmMyNjhhNGM3OGM2MDJkM2ZhNWRmMmMyMDAwNA==",
+          authorization: ORG_AUTH[DEFAULT_ORG],
           "cache-control": "no-cache",
           origin: "https://hall.quicktickets.ru",
           pragma: "no-cache",
@@ -128,7 +132,55 @@ const getPlaces = async (key) => {
     const status = e?.response?.status;
     let body = e?.response?.data;
     try { body = typeof body === "string" ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500); } catch {}
-    console.log(`[qt.error] getPlaces ${org}:${id}:`, status, body || e.message);
+    const bodyStr = body || e.message;
+    const invalid = status === 400 && /invalid_token/i.test(String(bodyStr));
+    if (invalid) {
+      try {
+        const response2 = await axios.get(
+          "https://api.quicktickets.ru/v1/anyticket/anyticket",
+          {
+            params: {
+              scope: "qt",
+              panel: "site",
+              user_id: "0",
+              organisation_alias: org,
+              elem_type: "session",
+              elem_id: id,
+            },
+            headers: {
+              accept: "application/json, text/plain, */*",
+              "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
+              "api-id": "quick-tickets",
+              "cache-control": "no-cache",
+              origin: "https://quicktickets.ru",
+              pragma: "no-cache",
+              priority: "u=1, i",
+              referer: `${BASE_URL}/${org}/s${id}`,
+              "sec-ch-ua":
+                '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": '"macOS"',
+              "sec-fetch-dest": "empty",
+              "sec-fetch-mode": "cors",
+              "sec-fetch-site": "same-origin",
+              "x-requested-with": "XMLHttpRequest",
+              cookie: `organisationAlias=${org}; cityId=528`,
+              "user-agent":
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            },
+          }
+        );
+        const data2 = response2.data;
+        console.log(`[qt.info] getPlaces ${org}:${id} fallback without auth used`);
+        return data2;
+      } catch (e2) {
+        const st2 = e2?.response?.status;
+        let body2 = e2?.response?.data;
+        try { body2 = typeof body2 === "string" ? body2.slice(0, 500) : JSON.stringify(body2).slice(0, 500); } catch {}
+        console.log(`[qt.error] getPlaces ${org}:${id} fallback:`, st2, body2 || e2.message);
+      }
+    }
+    console.log(`[qt.error] getPlaces ${org}:${id}:`, status, bodyStr);
     return null;
   }
 };
@@ -151,8 +203,7 @@ const getHallData = async (key) => {
           accept: "application/json, text/plain, */*",
           "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
           "api-id": "quick-tickets",
-          authorization:
-            "Basic NTA3MDRlY2RhOGViMzc3M2UzMjBjY2NkZjU0ZDM0NWQyNTIxZmMyNjhhNGM3OGM2MDJkM2ZhNWRmMmMyMDAwNA==",
+          ...(ORG_AUTH[org] ? { authorization: ORG_AUTH[org] } : {}),
           "cache-control": "no-cache",
           origin: "https://hall.quicktickets.ru",
           pragma: "no-cache",
@@ -188,7 +239,55 @@ const getHallData = async (key) => {
     const status = e?.response?.status;
     let body = e?.response?.data;
     try { body = typeof body === "string" ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500); } catch {}
-    console.log(`[qt.error] getHallData ${org}:${id}:`, status, body || e.message);
+    const bodyStr = body || e.message;
+    const invalid = status === 400 && /invalid_token/i.test(String(bodyStr));
+    if (invalid) {
+      try {
+        const response2 = await axios.get(
+          "https://api.quicktickets.ru/v1/hall/hall",
+          {
+            params: {
+              scope: "qt",
+              panel: "site",
+              user_id: "0",
+              organisation_alias: org,
+              elem_type: "session",
+              elem_id: id,
+            },
+            headers: {
+              accept: "application/json, text/plain, */*",
+              "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
+              "api-id": "quick-tickets",
+              "cache-control": "no-cache",
+              origin: "https://quicktickets.ru",
+              pragma: "no-cache",
+              priority: "u=1, i",
+              referer: `${BASE_URL}/${org}/s${id}`,
+              "sec-ch-ua":
+                '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
+              "sec-ch-ua-mobile": "?0",
+              "sec-ch-ua-platform": '"macOS"',
+              "sec-fetch-dest": "empty",
+              "sec-fetch-mode": "cors",
+              "sec-fetch-site": "same-origin",
+              "x-requested-with": "XMLHttpRequest",
+              cookie: `organisationAlias=${org}; cityId=528`,
+              "user-agent":
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+            },
+          }
+        );
+        const data2 = response2.data;
+        console.log(`[qt.info] getHallData ${org}:${id} fallback without auth used`);
+        return data2;
+      } catch (e2) {
+        const st2 = e2?.response?.status;
+        let body2 = e2?.response?.data;
+        try { body2 = typeof body2 === "string" ? body2.slice(0, 500) : JSON.stringify(body2).slice(0, 500); } catch {}
+        console.log(`[qt.error] getHallData ${org}:${id} fallback:`, st2, body2 || e2.message);
+      }
+    }
+    console.log(`[qt.error] getHallData ${org}:${id}:`, status, bodyStr);
     return null;
   }
 };
