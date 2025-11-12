@@ -29,14 +29,6 @@ const ORG_LIST = [
   "orel-teatr-russkij-stil-bahtina",
   "orel-teatr-svobodnoe-prostranstvo",
 ];
-
-const ORG_AUTH_ENV = (() => {
-  try {
-    return JSON.parse(process.env.ORG_AUTH_JSON || "{}");
-  } catch {
-    return {};
-  }
-})();
 const ORG_AUTH = {
   "orel-teatr-svobodnoe-prostranstvo":
     "Basic YjBkNDUxMDBmNGYxMzY2Y2E0OTVmMDZhMzFkMDI4Yzc0NDUxNzQ1MjZmMzM1MDVmYTA0ZjQ1OGRjZjc2ZmExZQ==",
@@ -44,9 +36,11 @@ const ORG_AUTH = {
     "Basic ZDIyMGJjNDlhOWM5NzM0YzRiNzM4NTdkOGJjZTRjNjMzNmYyNmQyNDE4N2ZkZmU0MzMwNzliZjUxODZkNjQwOQ==",
   "orel-teatr-turgeneva":
     "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
-  ...ORG_AUTH_ENV,
+  "orel-teatr-russkij-stil-bahtina":
+    "Basic OTEwZGVlNmE1ZWM3OGY0YTg0ZDMxODQ0YzVjMTBhYmNhNmZlNDBiZTY1NDZiNmNkZDE2MTFkZWVkZTg1OWRmOQ==",
 };
-const QT_USER_ID = process.env.QT_USER_ID || "1190633";
+const HALL_USER_ID = "1190633";
+const ANYTICKET_USER_ID = HALL_USER_ID;
 
 function parseSessionKey(key) {
   const s = String(key);
@@ -94,13 +88,19 @@ const SESSIONS = [
 const getPlaces = async (key) => {
   const { org, id } = parseSessionKey(key);
   try {
+    const tokenPreview = ORG_AUTH[org] ? String(ORG_AUTH[org]).slice(0, 12) + "…" : "none";
+    console.log(
+      `[qt.debug] getPlaces ${org}:${id} uid=${ANYTICKET_USER_ID} auth=${Boolean(
+        ORG_AUTH[org]
+      )} token=${tokenPreview}`
+    );
     const response = await axios.get(
       "https://api.quicktickets.ru/v1/anyticket/anyticket",
       {
         params: {
           scope: "qt",
           panel: "site",
-          user_id: QT_USER_ID,
+          user_id: ANYTICKET_USER_ID,
           organisation_alias: org,
           elem_type: "session",
           elem_id: id,
@@ -109,7 +109,9 @@ const getPlaces = async (key) => {
           accept: "application/json, text/plain, */*",
           "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
           "api-id": "quick-tickets",
-          ...(ORG_AUTH[org] ? { authorization: ORG_AUTH[org] } : {}),
+          ...(ORG_AUTH[org]
+            ? { authorization: ORG_AUTH[org], Authorization: ORG_AUTH[org] }
+            : {}),
           "cache-control": "no-cache",
           origin: "https://hall.quicktickets.ru",
           pragma: "no-cache",
@@ -155,7 +157,7 @@ const getPlaces = async (key) => {
             params: {
               scope: "qt",
               panel: "site",
-              user_id: "0",
+              user_id: HALL_USER_ID,
               organisation_alias: org,
               elem_type: "session",
               elem_id: id,
@@ -164,27 +166,28 @@ const getPlaces = async (key) => {
               accept: "application/json, text/plain, */*",
               "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
               "api-id": "quick-tickets",
+              ...(ORG_AUTH[org]
+                ? { authorization: ORG_AUTH[org], Authorization: ORG_AUTH[org] }
+                : {}),
               "cache-control": "no-cache",
-              origin: "https://quicktickets.ru",
+              origin: "https://hall.quicktickets.ru",
               pragma: "no-cache",
               priority: "u=1, i",
-              referer: `${BASE_URL}/${org}/s${id}`,
+              referer: "https://hall.quicktickets.ru/",
               "sec-ch-ua":
                 '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
               "sec-ch-ua-mobile": "?0",
               "sec-ch-ua-platform": '"macOS"',
               "sec-fetch-dest": "empty",
               "sec-fetch-mode": "cors",
-              "sec-fetch-site": "same-origin",
-              "x-requested-with": "XMLHttpRequest",
-              cookie: `organisationAlias=${org}; cityId=528`,
+              "sec-fetch-site": "same-site",
               "user-agent":
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
             },
           }
         );
         const data2 = response2.data;
-        console.log(`[qt.info] getPlaces ${org}:${id} fallback without auth used`);
+        console.log(`[qt.info] getPlaces ${org}:${id} fallback retry (with auth)`);
         return data2;
       } catch (e2) {
         const st2 = e2?.response?.status;
@@ -201,13 +204,19 @@ const getPlaces = async (key) => {
 const getHallData = async (key) => {
   const { org, id } = parseSessionKey(key);
   try {
+    const tokenPreview = ORG_AUTH[org] ? String(ORG_AUTH[org]).slice(0, 12) + "…" : "none";
+    console.log(
+      `[qt.debug] getHallData ${org}:${id} uid=${HALL_USER_ID} auth=${Boolean(
+        ORG_AUTH[org]
+      )} token=${tokenPreview}`
+    );
     const response = await axios.get(
       "https://api.quicktickets.ru/v1/hall/hall",
       {
         params: {
           scope: "qt",
           panel: "site",
-          user_id: "0",
+          user_id: HALL_USER_ID,
           organisation_alias: org,
           elem_type: "session",
           elem_id: id,
@@ -262,7 +271,7 @@ const getHallData = async (key) => {
             params: {
               scope: "qt",
               panel: "site",
-              user_id: "0",
+              user_id: ANYTICKET_USER_ID,
               organisation_alias: org,
               elem_type: "session",
               elem_id: id,
@@ -271,27 +280,26 @@ const getHallData = async (key) => {
               accept: "application/json, text/plain, */*",
               "accept-language": "ru,en-US;q=0.9,en;q=0.8,ru-RU;q=0.7",
               "api-id": "quick-tickets",
+              ...(ORG_AUTH[org] ? { authorization: ORG_AUTH[org] } : {}),
               "cache-control": "no-cache",
-              origin: "https://quicktickets.ru",
+              origin: "https://hall.quicktickets.ru",
               pragma: "no-cache",
               priority: "u=1, i",
-              referer: `${BASE_URL}/${org}/s${id}`,
+              referer: "https://hall.quicktickets.ru/",
               "sec-ch-ua":
                 '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
               "sec-ch-ua-mobile": "?0",
               "sec-ch-ua-platform": '"macOS"',
               "sec-fetch-dest": "empty",
               "sec-fetch-mode": "cors",
-              "sec-fetch-site": "same-origin",
-              "x-requested-with": "XMLHttpRequest",
-              cookie: `organisationAlias=${org}; cityId=528`,
+              "sec-fetch-site": "same-site",
               "user-agent":
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
             },
           }
         );
         const data2 = response2.data;
-        console.log(`[qt.info] getHallData ${org}:${id} fallback without auth used`);
+        console.log(`[qt.info] getHallData ${org}:${id} fallback retry (with auth)`);
         return data2;
       } catch (e2) {
         const st2 = e2?.response?.status;
