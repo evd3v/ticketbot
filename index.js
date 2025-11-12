@@ -74,8 +74,8 @@ const SESSIONS = [
 ];
 
 const getPlaces = async (key) => {
+  const { org, id } = parseSessionKey(key);
   try {
-    const { org, id } = parseSessionKey(key);
     const response = await axios.get(
       "https://api.quicktickets.ru/v1/anyticket/anyticket",
       {
@@ -110,16 +110,32 @@ const getPlaces = async (key) => {
         },
       }
     );
-
-    return response.data;
+    const data = response.data;
+    if (!data?.response?.places || typeof data.response.places !== "object") {
+      let preview;
+      try {
+        preview = JSON.stringify(data).slice(0, 500);
+      } catch {
+        preview = String(data).slice(0, 500);
+      }
+      console.log(
+        `[qt.warn] getPlaces ${org}:${id} unexpected payload:`,
+        preview
+      );
+    }
+    return data;
   } catch (e) {
-    console.log("Ошибка в процессе получения мест");
+    const status = e?.response?.status;
+    let body = e?.response?.data;
+    try { body = typeof body === "string" ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500); } catch {}
+    console.log(`[qt.error] getPlaces ${org}:${id}:`, status, body || e.message);
+    return null;
   }
 };
 
 const getHallData = async (key) => {
+  const { org, id } = parseSessionKey(key);
   try {
-    const { org, id } = parseSessionKey(key);
     const response = await axios.get(
       "https://api.quicktickets.ru/v1/hall/hall",
       {
@@ -154,9 +170,26 @@ const getHallData = async (key) => {
         },
       }
     );
-    return response.data;
-  } catch (error) {
-    console.log("ошибка в процессе получения доступных места");
+    const data = response.data;
+    if (!data?.response?.places || typeof data.response.places !== "object") {
+      let preview;
+      try {
+        preview = JSON.stringify(data).slice(0, 500);
+      } catch {
+        preview = String(data).slice(0, 500);
+      }
+      console.log(
+        `[qt.warn] getHallData ${org}:${id} unexpected payload:`,
+        preview
+      );
+    }
+    return data;
+  } catch (e) {
+    const status = e?.response?.status;
+    let body = e?.response?.data;
+    try { body = typeof body === "string" ? body.slice(0, 500) : JSON.stringify(body).slice(0, 500); } catch {}
+    console.log(`[qt.error] getHallData ${org}:${id}:`, status, body || e.message);
+    return null;
   }
 };
 
@@ -611,12 +644,22 @@ app.post("/api/subscriptions", async (req, res) => {
     if (added.length) {
       for (const sid of added) {
         try {
-          const {
-            response: { places },
-          } = await getPlaces(sid);
-          const {
-            response: { places: hallPlaces },
-          } = await getHallData(sid);
+          const gp = await getPlaces(sid);
+          const gpPlaces = gp?.response?.places;
+          if (!gpPlaces || typeof gpPlaces !== "object") {
+            const { org, id } = parseSessionKey(sid);
+            console.log(`[poll.warn] snapshot ${org}:${id} places missing`);
+            continue;
+          }
+          const hd = await getHallData(sid);
+          const hdPlaces = hd?.response?.places;
+          if (!hdPlaces || typeof hdPlaces !== "object") {
+            const { org, id } = parseSessionKey(sid);
+            console.log(`[poll.warn] snapshot ${org}:${id} hall missing`);
+            continue;
+          }
+          const places = gpPlaces;
+          const hallPlaces = hdPlaces;
           const placesKeys = Object.keys(places);
           const hallPlacesKeys = Object.keys(hallPlaces);
           const availablePlacesKeys = hallPlacesKeys.filter(
@@ -1033,12 +1076,22 @@ setInterval(async () => {
     const sessionIds = sessionRows.map((r) => String(r.session_id));
     for (const sid of sessionIds) {
       try {
-        const {
-          response: { places },
-        } = await getPlaces(sid);
-        const {
-          response: { places: hallPlaces },
-        } = await getHallData(sid);
+        const gp = await getPlaces(sid);
+        const gpPlaces = gp?.response?.places;
+        if (!gpPlaces || typeof gpPlaces !== "object") {
+          const { org, id } = parseSessionKey(sid);
+          console.log(`[poll.warn] session ${org}:${id} places missing`);
+          continue;
+        }
+        const hd = await getHallData(sid);
+        const hdPlaces = hd?.response?.places;
+        if (!hdPlaces || typeof hdPlaces !== "object") {
+          const { org, id } = parseSessionKey(sid);
+          console.log(`[poll.warn] session ${org}:${id} hall missing`);
+          continue;
+        }
+        const places = gpPlaces;
+        const hallPlaces = hdPlaces;
         const placesKeys = Object.keys(places);
         const hallPlacesKeys = Object.keys(hallPlaces);
         const availablePlacesKeys = hallPlacesKeys.filter(
