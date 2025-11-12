@@ -4,27 +4,31 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Подписки на спектакли</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
-  <div class="container">
-    <h1>Подписки</h1>
-    <p class="hint">Выберите сеансы, на которые хотите получать уведомления.</p>
-    <div class="filters">
-      <div class="filters-title">Театры</div>
-      <div id="orgFilters" class="filters-orgs"></div>
-    </div>
-    <div class="subs-wrap">
-      <div class="subs-title">Ваши подписки</div>
-      <div id="subs" class="subs"></div>
+  <div class="mx-auto max-w-screen-md p-4 space-y-4 text-slate-100">
+    <h1 class="text-2xl font-semibold">Подписки</h1>
+    <p class="text-sm text-slate-300">Выберите сеансы, на которые хотите получать уведомления.</p>
+
+    <div class="flex flex-col gap-3">
+      <input id="search" type="search" placeholder="Поиск спектакля" 
+             class="w-full rounded-lg border border-white/10 bg-white/10 text-slate-100 placeholder-slate-400 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+      <div id="orgFilters" class="flex flex-wrap gap-2"></div>
     </div>
 
-    <div id="list" class="list"></div>
+    <div class="space-y-2">
+      <div class="text-sm font-medium text-slate-300">Ваши подписки</div>
+      <div id="subs" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+    </div>
 
-    <div class="actions">
-      <button id="unsubAllBtn" class="btn danger">Отписаться от всех</button>
-      <span id="status" class="status"></span>
+    <div id="list" class="space-y-2"></div>
+
+    <div class="flex items-center justify-between">
+      <button id="unsubAllBtn" class="rounded-lg border border-red-500 text-red-400 hover:bg-red-500/10 px-3 py-2 text-sm">Отписаться от всех</button>
+      <span id="status" class="text-sm text-slate-400"></span>
     </div>
   </div>
 
